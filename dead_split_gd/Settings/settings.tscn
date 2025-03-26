@@ -17,16 +17,18 @@
 
 [sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_cfss5"]
 
-[node name="Settings" type="Window" node_paths=PackedStringArray("submenus", "menus_container", "outer_toggle", "menu_toggle", "igt_toggle", "save_profile_button", "load_profile_button", "profile_saver", "profile_loader")]
+[node name="Settings" type="Window" node_paths=PackedStringArray("submenus", "menus_container", "outer_toggle", "menu_toggle", "igt_toggle", "wayland_toggle", "save_profile_button", "load_profile_button", "profile_saver", "profile_loader")]
 title = "DeadSplit Settings"
 initial_position = 4
 size = Vector2i(1000, 1000)
+theme = ExtResource("2_qeycx")
 script = ExtResource("1_cdu2u")
 submenus = NodePath("VBoxContainer/Submenus")
 menus_container = NodePath("MenuToggle/MenusContainer")
 outer_toggle = NodePath("VBoxContainer")
 menu_toggle = NodePath("MenuToggle")
 igt_toggle = NodePath("VBoxContainer/UseIGTToggle")
+wayland_toggle = NodePath("VBoxContainer/WaylandKeyToggle")
 save_profile_button = NodePath("VBoxContainer/SaveProfileButton")
 load_profile_button = NodePath("VBoxContainer/LoadProfileButton")
 profile_saver = NodePath("ProfileSaver")
@@ -56,6 +58,9 @@ item_4/text = "Edit Layout"
 item_5/text = "Edit Hotkeys"
 item_6/text = "Theme"
 item_7/text = "Quit DeadSplit"
+
+[node name="WaylandKeyToggle" type="CheckButton" parent="VBoxContainer"]
+layout_mode = 2
 
 [node name="UseIGTToggle" type="CheckButton" parent="VBoxContainer"]
 layout_mode = 2
@@ -675,6 +680,7 @@ use_native_dialog = true
 
 [connection signal="close_requested" from="." to="." method="_on_close_requested"]
 [connection signal="item_clicked" from="VBoxContainer/Submenus" to="." method="_on_submenus_item_clicked"]
+[connection signal="toggled" from="VBoxContainer/WaylandKeyToggle" to="." method="_on_wayland_key_toggle_toggled"]
 [connection signal="toggled" from="VBoxContainer/UseIGTToggle" to="." method="_on_use_igt_toggle_toggled"]
 [connection signal="visibility_changed" from="VBoxContainer/UseIGTToggle" to="." method="_on_use_igt_toggle_visibility_changed"]
 [connection signal="pressed" from="VBoxContainer/SaveProfileButton" to="." method="_on_save_profile_button_pressed"]

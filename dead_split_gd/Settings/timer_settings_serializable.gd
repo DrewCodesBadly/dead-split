@@ -5,6 +5,7 @@ class_name TimerSettingsSerializable
 # Silly situation i got myself into
 
 @export var rta := true
+@export var wayland_hotkeys := true
 @export var show_title := true
 @export var show_splits := true
 @export var show_attempt_count := true

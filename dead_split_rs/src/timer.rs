@@ -3,7 +3,6 @@ use std::{
     fs::{self, File},
     io::BufWriter,
     path::Path,
-    str::FromStr,
 };
 
 use crate::editable_run::EditableRun;
@@ -275,63 +274,33 @@ impl DeadSplitTimer {
     // hotkeys
     #[func]
     fn add_hotkey(&mut self, key_string: String, hotkey_id: i32) -> bool {
-        let key = match HotKey::from_str(&key_string) {
-            Ok(k) => k,
-            Err(_) => return false,
-        };
-        if self.hotkey_mgr.register(key).is_err() {
-            false;
-        }
-        self.hotkey_binds.insert(key.id(), hotkey_id);
-        self.hotkeys.insert(hotkey_id, key);
-
-        true
+        self.hotkey_mgr.bind_key(key_string, hotkey_id).is_ok()
     }
 
     #[func]
     fn remove_hotkey(&mut self, hotkey_id: i32) -> bool {
-        let key = match self.hotkeys.get(&hotkey_id) {
-            Some(k) => k,
-            None => return false,
-        };
-        if self.hotkey_mgr.unregister(*key).is_err() {
-            return false;
-        }
-        self.hotkey_binds.remove_entry(&key.id);
-
-        true
+        self.hotkey_mgr.remove_key(hotkey_id).is_ok()
     }
 
     #[func]
-    fn clear_hotkeys(&mut self) {
-        let _ = self.hotkey_mgr.unregister_all(
-            self.hotkeys
-                .values()
-                .map(|h| *h)
-                .collect::<Vec<HotKey>>()
-                .as_slice(),
-        );
-        self.hotkey_binds.clear();
-        self.hotkeys.clear();
+    fn reset_hotkey_manager(&mut self, use_wayland: bool) {
+        if use_wayland {
+            self.hotkey_mgr = HotkeyManager::new_wayland(Hook::new()
+                .expect("Failed to create hotkey hook"));
+        } else {
+            self.hotkey_mgr = HotkeyManager::new_x11(GlobalHotKeyManager::new()
+                .expect("Failed to create global hotkey manager"));
+        }
     }
 
     #[func]
     fn get_hotkey_string(&self, hotkey_id: i32) -> String {
-        self.hotkeys
-            .get(&hotkey_id)
-            .map(|h| h.into_string())
-            .unwrap_or(String::from("None"))
+        self.hotkey_mgr.get_hotkey_string(hotkey_id).unwrap_or(String::from("None"))
     }
 
     #[func]
     fn get_hotkeys_dict(&self) -> Dictionary {
-        let mut dict = Dictionary::new();
-
-        for (k, v) in &self.hotkeys {
-            dict.set(*k, v.into_string());
-        }
-
-        dict
+        self.hotkey_mgr.get_hotkeys_dict()
     }
 
     #[signal]

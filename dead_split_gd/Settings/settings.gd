@@ -5,6 +5,7 @@ extends Window
 @export var outer_toggle: Control
 @export var menu_toggle: Control
 @export var igt_toggle: CheckButton
+@export var wayland_toggle: CheckButton
 
 @export var save_profile_button: Button
 @export var load_profile_button: Button
@@ -31,8 +32,8 @@ func _on_close_requested() -> void:
 	timer_window.update_settings()
 	timer_window.settings_open = false
 	MainTimer.run_changed.emit() # just assume run updated, it's easier than actually checking
-	
 	TimerSettings.reload_autosplitter()
+	TimerSettings.reload_hotkeys()
 	
 	queue_free()
 
@@ -54,7 +55,7 @@ func _on_back_button_pressed() -> void:
 	outer_toggle.show()
 
 func _on_save_button_pressed() -> void:
-	pass # Replace with function body.
+	TimerSettings.save()
 
 func _on_use_igt_toggle_toggled(toggled_on: bool) -> void:
 	TimerSettings.rta = !toggled_on
@@ -63,6 +64,8 @@ func _on_use_igt_toggle_toggled(toggled_on: bool) -> void:
 func _on_use_igt_toggle_visibility_changed() -> void:
 	if igt_toggle.visible:
 		igt_toggle.button_pressed = !TimerSettings.rta
+	if wayland_toggle.visible:
+		wayland_toggle.button_pressed = TimerSettings.wayland_hotkeys
 
 
 func _on_save_profile_button_pressed() -> void:
@@ -93,3 +96,6 @@ func _on_load_profile_button_pressed() -> void:
 	load_profile_button.disabled = true
 	load_profile_button.text = "Waiting..."
 	profile_loader.show()
+
+func _on_wayland_key_toggle_toggled(toggled_on: bool) -> void:
+	TimerSettings.wayland_hotkeys = toggled_on

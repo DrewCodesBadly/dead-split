@@ -14,6 +14,7 @@ enum TimerPhase {
 }
 
 var rta := true
+var wayland_hotkeys := true
 var show_title := true
 var show_splits := true
 var show_attempt_count := true
@@ -119,6 +120,7 @@ func save() -> void:
 	var settings := TimerSettingsSerializable.new()
 	
 	settings.rta = rta
+	settings.wayland_hotkeys = wayland_hotkeys
 	settings.show_title = show_title
 	settings.show_splits = show_splits
 	settings.show_attempt_count = show_attempt_count
@@ -160,6 +162,7 @@ func try_load() -> void:
 			#print(property["name"] + ": " + str(settings.get(property["name"])))
 		
 		rta = settings.rta 
+		wayland_hotkeys = settings.wayland_hotkeys
 		show_title = settings.show_title 
 		show_splits = settings.show_splits
 		show_attempt_count = settings.show_attempt_count
@@ -178,6 +181,8 @@ func try_load() -> void:
 		autosplitter_settings_dict = settings.autosplitter_settings_dict
 		window_size = settings.window_size
 		split_time_min_size = settings.split_time_min_size
+		
+		MainTimer.reset_hotkey_manager(wayland_hotkeys)
 		
 		# Load hotkeys
 		for k in settings.hotkeys_dict:
@@ -229,6 +234,13 @@ func load_profile(path: String) -> void:
 		split_time_min_size = settings.split_time_min_size
 		
 		# Load hotkeys
-		MainTimer.clear_hotkeys()
+		MainTimer.reset_hotkey_manager(wayland_hotkeys)
 		for k in settings.hotkeys_dict:
 			MainTimer.add_hotkey(settings.hotkeys_dict[k], k)
+
+func reload_hotkeys() -> void:
+	var hotkeys_dict := MainTimer.get_hotkeys_dict()
+	
+	MainTimer.reset_hotkey_manager(wayland_hotkeys)
+	for k in hotkeys_dict:
+		MainTimer.add_hotkey(hotkeys_dict[k], k)

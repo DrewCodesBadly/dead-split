@@ -1,16 +1,15 @@
-use std::{
-    collections::HashMap,
-    sync::{RwLockReadGuard, RwLockWriteGuard},
-};
+use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
-use global_hotkey::{hotkey::HotKey, GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
+use global_hotkey::GlobalHotKeyManager;
 use godot::prelude::*;
-use livesplit_core::{Run, Segment, SharedTimer, Timer};
+use hotkey_manager::HotkeyManager;
+use livesplit_core::{Run, Segment, SharedTimer, Timer, hotkey::Hook};
 use read_process_memory::ProcessHandle;
 use sysinfo::{Pid, ProcessRefreshKind, RefreshKind, System};
 
 mod editable_run;
 mod timer;
+mod hotkey_manager;
 
 struct DeadSplitRust;
 
@@ -37,14 +36,13 @@ pub struct DeadSplitTimer {
     pub current_split_index: i32,
     #[var]
     pub timer_phase: u8,
-    hotkey_mgr: GlobalHotKeyManager,
-    hotkey_binds: HashMap<u32, i32>,
-    hotkeys: HashMap<i32, HotKey>,
+    hotkey_mgr: HotkeyManager,
     system: System,
     attached_process: Option<ProcessData>,
 
     base: Base<Node>,
 }
+
 
 pub fn timer_read(t: &SharedTimer) -> RwLockReadGuard<'_, Timer> {
     t.read().unwrap()
@@ -66,9 +64,9 @@ impl INode for DeadSplitTimer {
             current_game_time: 0.0,
             current_split_index: -1,
             timer_phase: 0,
-            hotkey_mgr: GlobalHotKeyManager::new().expect("couldn't create hotkey manager"),
-            hotkey_binds: HashMap::new(),
-            hotkeys: HashMap::new(),
+            // Starts by default with a wayland hook.
+            // This should be reloaded when the timer's settings are loaded.
+            hotkey_mgr: HotkeyManager::new_wayland(Hook::new().expect("Failed to create hotkey hook")),
             system: System::new_with_specifics(RefreshKind::nothing().with_processes(
                 ProcessRefreshKind::nothing().with_exe(sysinfo::UpdateKind::OnlyIfNotSet),
             )),
@@ -94,17 +92,12 @@ impl INode for DeadSplitTimer {
         }
 
         // Check for hotkey presses
-        if let Ok(e) = GlobalHotKeyEvent::receiver().try_recv() {
-            if e.state() == HotKeyState::Pressed {
-                if let Some(c) = self.hotkey_binds.get(&e.id()).to_owned() {
-                    let idx = *c;
-                    self.base_mut()
-                        .clone()
-                        .upcast::<Object>()
-                        .emit_signal("hotkey_pressed", &[Variant::from(idx)]);
-                    // self.hotkey_pressed(idx);
-                }
-            }
+        if let Some(idx) = self.hotkey_mgr.poll_keypress() {
+            self.base_mut()
+                .clone()
+                .upcast::<Object>()
+                .emit_signal("hotkey_pressed", &[Variant::from(idx)]);
+                // self.hotkey_pressed(idx);
         }
     }
 }

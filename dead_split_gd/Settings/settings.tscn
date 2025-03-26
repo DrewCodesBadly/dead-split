@@ -61,6 +61,7 @@ item_7/text = "Quit DeadSplit"
 
 [node name="WaylandKeyToggle" type="CheckButton" parent="VBoxContainer"]
 layout_mode = 2
+text = "Use Wayland Hotkeys"
 
 [node name="UseIGTToggle" type="CheckButton" parent="VBoxContainer"]
 layout_mode = 2

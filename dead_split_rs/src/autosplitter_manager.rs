@@ -124,7 +124,6 @@ impl AutosplitterManager {
 
     pub fn get_settings_dict(&self) -> Dictionary {
         let mut dict = Dictionary::new();
-        godot::global::print(&[Variant::from(self.auto_splitter.lock().memory().len() as i64)]);
 
         for widget in self.auto_splitter.settings_widgets().iter() {
             match &widget.kind {

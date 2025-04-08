@@ -219,6 +219,7 @@ func reload_autosplitter() -> void:
 			# Start the autosplitter
 			MainTimer.autosplitter_ticks.start()
 	else: # Must be wasm autosplitter
+		MainTimer.load_wasm_autosplitter(autosplitter_path)
 		# Make sure the autosplitter finishes loading and sets settings
 		await get_tree().create_timer(0.1).timeout
 		# Then set the settings on the autosplitter

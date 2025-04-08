@@ -34,7 +34,6 @@ func generate(focus_index: int = -1, shown_splits: int = 0, shown_splits_after_c
 			split.set_split_name(subsplits[iterate_idx - start_index].split_name)
 			if iterate_idx == MainTimer.current_split_index:
 				split.current = true
-			split.get_child(0).get_child(2).custom_minimum_size.x = TimerSettings.split_separation
 			split.update()
 			arr.append(split)
 			
@@ -49,7 +48,6 @@ func generate(focus_index: int = -1, shown_splits: int = 0, shown_splits_after_c
 		split.idx = index
 		split.set_split_name(split_name)
 		split.update()
-		split.get_child(0).get_child(2).custom_minimum_size.x = TimerSettings.split_separation
 		arr.append(split)
 	
 	return arr

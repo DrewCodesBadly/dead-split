@@ -63,3 +63,10 @@ func refresh() -> void:
 				spin.step = 0.001
 				spin.value_changed.connect(func(b: bool): TimerSettings.autosplitter_settings_dict[key] = b)
 				container.add_child(spin)
+
+
+func _on_clear_as_button_pressed() -> void:
+	TimerSettings.autosplitter_path = ""
+	TimerSettings.reload_autosplitter()
+	update_label()
+	refresh()

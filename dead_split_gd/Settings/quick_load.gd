@@ -67,7 +67,7 @@ func load_file(path: String) -> void:
 	
 	# Check which type of file it is and set paths appropriately.
 	# Everything should get reloaded when the window is closed except profiles and runs.
-	if path.ends_with(".gd"): # autosplitter
+	if path.ends_with(".gd") or path.ends_with(".wasm"): # autosplitter
 		TimerSettings.autosplitter_path = path
 	elif path.ends_with(".zip"): # theme
 		TimerSettings.timer_theme_path = path

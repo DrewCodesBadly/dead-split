@@ -12,3 +12,5 @@ livesplit-core = "0.13.0"
 godot = "0.2.4"
 read-process-memory = "0.1.6"
 sysinfo = "0.33.1"
+# Git repository is used for livesplit-auto-splitting beacuse the crates.io package is dated
+livesplit-auto-splitting = { git = "https://github.com/LiveSplit/livesplit-core" }

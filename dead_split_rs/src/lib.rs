@@ -1,5 +1,6 @@
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
+use autosplitter_manager::AutosplitterManager;
 use global_hotkey::GlobalHotKeyManager;
 use godot::prelude::*;
 use hotkey_manager::HotkeyManager;
@@ -10,6 +11,7 @@ use sysinfo::{Pid, ProcessRefreshKind, RefreshKind, System};
 mod editable_run;
 mod timer;
 mod hotkey_manager;
+mod autosplitter_manager;
 
 struct DeadSplitRust;
 
@@ -39,6 +41,7 @@ pub struct DeadSplitTimer {
     hotkey_mgr: HotkeyManager,
     system: System,
     attached_process: Option<ProcessData>,
+    autosplitter_manager: Option<AutosplitterManager>,
 
     base: Base<Node>,
 }
@@ -71,6 +74,7 @@ impl INode for DeadSplitTimer {
                 ProcessRefreshKind::nothing().with_exe(sysinfo::UpdateKind::OnlyIfNotSet),
             )),
             attached_process: None,
+            autosplitter_manager: None,
             base,
         }
     }

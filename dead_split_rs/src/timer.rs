@@ -348,6 +348,11 @@ impl DeadSplitTimer {
     }
 
     #[func]
+    pub fn detach_process(&mut self) {
+        self.attached_process = None;
+    }
+
+    #[func]
     pub fn read_pointer_path(
         &self,
         offsets: PackedInt64Array,
@@ -451,5 +456,34 @@ impl DeadSplitTimer {
     fn resume_game_time(&self) {
         let mut binding = timer_write(&self.timer);
         binding.resume_game_time();
+    }
+
+    #[func]
+    fn load_wasm_autosplitter(&mut self, path: String) -> bool {
+        self.autosplitter_manager = AutosplitterManager::new(self.timer.clone(), path).ok();
+        self.autosplitter_manager.is_some()
+    }
+
+    // AutosplitterManager.drop() stops the running thread.
+    #[func]
+    fn unload_wasm_autosplitter(&mut self) {
+        self.autosplitter_manager = None;
+    }
+
+    #[func]
+    fn get_wasm_settings_dict(&self) -> Dictionary {
+        if let Some(m) = &self.autosplitter_manager {
+            m.get_settings_dict()
+        } else {
+            godot::global::print(&[Variant::from("failed to get settings")]);
+            Dictionary::new()
+        }
+    }
+
+    #[func]
+    fn set_wasm_settings_dict(&mut self, dict: Dictionary) {
+        if let Some(m) = &mut self.autosplitter_manager {
+            m.set_settings_dict(dict);
+        }
     }
 }

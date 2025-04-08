@@ -189,25 +189,51 @@ func try_load() -> void:
 			MainTimer.add_hotkey(settings.hotkeys_dict[k], k)
 
 func reload_autosplitter() -> void:
+	# Stop the autosplitter from running, it will restart if a new GDScript autosplitter loads
+	MainTimer.autosplitter = null
+	MainTimer.autosplitter_ticks.stop()
+	MainTimer.detach_process()
+	MainTimer.unload_wasm_autosplitter()
+	
 	if autosplitter_path == "" or !autosplitter_path.is_absolute_path(): return
-	var autosplitter := Autosplitter.new()
-	var script = ResourceLoader.load(autosplitter_path, "Script")
-	if script and autosplitter:
-		autosplitter.set_script(script)
-		MainTimer.autosplitter = autosplitter
-		autosplitter.setup()
-		
-		# Handle settings
-		for setting in autosplitter_settings_dict:
-			if autosplitter.settings.has(setting):
-				autosplitter.settings[setting] = autosplitter_settings_dict[setting]
+	if autosplitter_path.ends_with(".gd"): # GDScript autosplitters
+		var autosplitter := Autosplitter.new()
+		var script = ResourceLoader.load(autosplitter_path, "Script")
+		if script and autosplitter:
+			autosplitter.set_script(script)
+			MainTimer.autosplitter = autosplitter
+			autosplitter.setup()
+			
+			# Handle settings
+			for setting in autosplitter_settings_dict:
+				if autosplitter.settings.has(setting):
+					autosplitter.settings[setting] = autosplitter_settings_dict[setting]
+				else:
+					autosplitter_settings_dict.erase(setting)
+			for setting in autosplitter.settings:
+				if !autosplitter_settings_dict.has(setting):
+					autosplitter_settings_dict[setting] = autosplitter.settings[setting]
+			
+			autosplitter.read_settings()
+			
+			# Start the autosplitter
+			MainTimer.autosplitter_ticks.start()
+	else: # Must be wasm autosplitter
+		# Make sure the autosplitter finishes loading and sets settings
+		await get_tree().create_timer(0.1).timeout
+		# Then set the settings on the autosplitter
+		var dict := MainTimer.get_wasm_settings_dict()
+		for key in dict.keys():
+			if autosplitter_settings_dict.has(key):
+				dict[key] = autosplitter_settings_dict[key]
 			else:
-				autosplitter_settings_dict.erase(setting)
-		for setting in autosplitter.settings:
-			if !autosplitter_settings_dict.has(setting):
-				autosplitter_settings_dict[setting] = autosplitter.settings[setting]
+				autosplitter_settings_dict[key] = dict[key]
 		
-		autosplitter.read_settings()
+		for key in autosplitter_settings_dict.keys():
+			if !dict.has(key):
+				autosplitter_settings_dict.erase(key)
+		
+		MainTimer.set_wasm_settings_dict(dict)
 
 func load_profile(path: String) -> void:
 	if path != "" and path.is_absolute_path() and ResourceLoader.exists(path, "TimerSettingsSerializable"):

@@ -1,4 +1,4 @@
-use livesplit_core::{timing::Snapshot, Run};
+use livesplit_core::{timing::{formatter::{timer::Fraction, Accuracy, SegmentTime, TimeFormatter}, Snapshot}, Run};
 
 pub mod split_component;
 
@@ -42,23 +42,33 @@ impl TitleComponent {
 }
 
 pub struct RunTimerComponent {
+    formatter: SegmentTime,
+}
+
+pub struct RunTimerConfig {
+    timer_accuracy: Accuracy,
+}
+
+impl Default for RunTimerConfig {
+    fn default() -> Self {
+        Self { timer_accuracy: Accuracy::Hundredths }
+    }
 }
 
 impl TimerComponent for RunTimerComponent {
     fn show(&self, ui: &mut egui::Ui, update_data: &UpdateData) {
-        let time = update_data.snapshot.current_time().real_time;
-        let time_secs = match time {
-            None => 0.0,
-            Some(t) => t.total_seconds(),
+        let time = match update_data.snapshot.current_timing_method() {
+            livesplit_core::TimingMethod::GameTime => update_data.snapshot.current_time().game_time,
+            livesplit_core::TimingMethod::RealTime => update_data.snapshot.current_time().real_time,
         };
-        ui.label(time_secs.to_string());
+        ui.label(self.formatter.format(time).to_string());
     }
 }
 
 impl RunTimerComponent {
-    pub fn new() -> Self {
+    pub fn new(config: RunTimerConfig) -> Self {
         Self {
-
+            formatter: SegmentTime::with_accuracy(config.timer_accuracy),
         }
     }
 }

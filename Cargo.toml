@@ -13,5 +13,6 @@ egui-theme = "0.1.1"
 eframe = "0.31.1"
 egui-stylist = "0.1.1"
 directories = "6.0.0"
+config = { version = "0.15.11", features = ["toml"] }
 # Git repository is used for livesplit-auto-splitting beacuse the crates.io package is dated
 livesplit-auto-splitting = { git = "https://github.com/LiveSplit/livesplit-core" }

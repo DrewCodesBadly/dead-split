@@ -7,13 +7,15 @@ use global_hotkey::GlobalHotKeyManager;
 use hotkey_manager::HotkeyManager;
 use livesplit_core::{hotkey::Hook, Run, Segment, SharedTimer, Timer, TimerPhase};
 use read_process_memory::ProcessHandle;
+use settings_menu::SettingsMenu;
 use sysinfo::{Pid, ProcessRefreshKind, RefreshKind, System};
-use timer_components::{split_component::{SplitComponent, SplitComponentConfig}, RunTimerComponent, TimerComponent, TitleComponent, UpdateData};
+use timer_components::{split_component::{SplitComponent, SplitComponentConfig}, RunTimerComponent, RunTimerConfig, TimerComponent, TitleComponent, UpdateData};
 
 mod editable_run;
 mod hotkey_manager;
 mod autosplitter_manager;
 mod timer_components;
+mod settings_menu;
 
 struct DeadSplit {
     // TODO: avoid unwraps?
@@ -27,6 +29,7 @@ struct DeadSplit {
     autosplitter_manager: Option<AutosplitterManager>,
 
     components: Vec<Box<dyn TimerComponent>>,
+    settings_menu: SettingsMenu,
 }
 
 impl DeadSplit {
@@ -52,8 +55,9 @@ impl DeadSplit {
             components: vec![
                 Box::new(title_comp),
                 Box::new(split_comp), 
-                Box::new(RunTimerComponent::new())
+                Box::new(RunTimerComponent::new(RunTimerConfig::default()))
             ],
+            settings_menu: SettingsMenu::new(),
         }
     }
 
@@ -98,7 +102,28 @@ impl App for DeadSplit {
                 component.show(ui, &update_data);
                 ui.separator();
             }
+            if ui.input(|i| i.pointer.secondary_clicked()) {
+                self.settings_menu.shown = true;
+            }
         });
+
+        if self.settings_menu.shown {
+            ctx.show_viewport_immediate(
+                egui::ViewportId::from_hash_of("DeadSplit_settings"),
+                egui::ViewportBuilder::default()
+                    .with_title("DeadSplit Settings")
+                    .with_inner_size([500.0, 500.0]), 
+                |ctx, class| {
+                    assert!(class == egui::ViewportClass::Immediate, "multiple viewports not supported");
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        self.settings_menu.show(ctx, ui);
+                    });
+
+                    if ctx.input(|i| i.viewport().close_requested()) {
+                        self.settings_menu.shown = false;
+                    }
+                });
+        }
     }
 }
 

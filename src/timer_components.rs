@@ -1,15 +1,64 @@
-mod split_component;
+use livesplit_core::{timing::Snapshot, Run};
+
+pub mod split_component;
+
+pub struct UpdateData<'a> {
+    pub snapshot: Snapshot<'a>,
+    pub run: &'a Run,
+}
 
 pub trait TimerComponent {
-    fn show(&self, ui: &mut egui::Ui);
+    fn show(&self, ui: &mut egui::Ui, update_data: &UpdateData);
 }
 
 pub struct TitleComponent {
-
+    game_name: String,
+    cat_name: String,
+    attempt_string: String,
 }
 
 impl TimerComponent for TitleComponent {
-    fn show(&self, ui: &mut egui::Ui) {
-        todo!()
+    fn show(&self, ui: &mut egui::Ui, _update_data: &UpdateData) {
+        ui.label(&self.game_name);
+        ui.label(&self.cat_name);
+        ui.label(&self.attempt_string);
+    }
+}
+
+impl TitleComponent {
+    pub fn new(run: &Run) -> Self {
+        let mut finished_count = 0;
+        for attempt in run.attempt_history() {
+            if let Some(_) = attempt.time().real_time {
+                finished_count += 1;
+            }
+        }
+        Self {
+            game_name: run.game_name().to_owned(),
+            cat_name: run.category_name().to_owned(),
+            attempt_string: finished_count.to_string() + "/" + &run.attempt_count().to_string(),
+        }
+    }
+}
+
+pub struct RunTimerComponent {
+}
+
+impl TimerComponent for RunTimerComponent {
+    fn show(&self, ui: &mut egui::Ui, update_data: &UpdateData) {
+        let time = update_data.snapshot.current_time().real_time;
+        let time_secs = match time {
+            None => 0.0,
+            Some(t) => t.total_seconds(),
+        };
+        ui.label(time_secs.to_string());
+    }
+}
+
+impl RunTimerComponent {
+    pub fn new() -> Self {
+        Self {
+
+        }
     }
 }

@@ -8,10 +8,9 @@ use hotkey_manager::HotkeyManager;
 use livesplit_core::{hotkey::Hook, Run, Segment, SharedTimer, Timer, TimerPhase};
 use read_process_memory::ProcessHandle;
 use sysinfo::{Pid, ProcessRefreshKind, RefreshKind, System};
-use timer_components::TimerComponent;
+use timer_components::{split_component::{SplitComponent, SplitComponentConfig}, RunTimerComponent, TimerComponent, TitleComponent, UpdateData};
 
 mod editable_run;
-mod timer;
 mod hotkey_manager;
 mod autosplitter_manager;
 mod timer_components;
@@ -35,8 +34,10 @@ impl DeadSplit {
         let timer = Timer::new(get_default_run())
             .expect("failed to create new splits")
             .into_shared();
+        let title_comp = TitleComponent::new(timer_read(&timer).run());
+        let split_comp = SplitComponent::new(SplitComponentConfig::default(), timer_read(&timer).run());
         Self {
-            timer,
+            timer: timer,
             current_time: 0.0,
             current_game_time: 0.0,
             current_split_index: -1,
@@ -46,8 +47,18 @@ impl DeadSplit {
             )),
             attached_process: None,
             autosplitter_manager: None,
-            components: Vec::new(),
+            // TODO: Load these instead of hardcoding them
+            // components: Vec::new(),
+            components: vec![
+                Box::new(title_comp),
+                Box::new(split_comp), 
+                Box::new(RunTimerComponent::new())
+            ],
         }
+    }
+
+    pub fn reload_layout() {
+        todo!()
     }
 }
 
@@ -77,9 +88,15 @@ fn get_default_run() -> Run {
 
 impl App for DeadSplit {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let binding = timer_read(&self.timer);
+        let update_data = UpdateData {
+            snapshot: binding.snapshot(),
+            run: binding.run(),
+        };
         CentralPanel::default().show(ctx, |ui| {
             for component in &self.components {
-                component.show(ui);
+                component.show(ui, &update_data);
+                ui.separator();
             }
         });
     }
@@ -98,8 +115,9 @@ fn main() {
 
     run_native(
         "DeadSplit", 
-        window_options, Box::new(|cc| {
-        Ok(Box::new(DeadSplit::new(cc)))
-    }),
+        window_options, 
+        Box::new(|cc| {
+            Ok(Box::new(DeadSplit::new(cc)))
+        }),
     ).expect("failed to open window");
 }

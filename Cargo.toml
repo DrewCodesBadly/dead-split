@@ -15,5 +15,6 @@ egui-stylist = "0.1.1"
 directories = "6.0.0"
 config = { version = "0.15.11", features = ["toml"] }
 strum = { version = "0.27.1", features = ["derive"] }
+rfd = "0.15.3"
 # Git repository is used for livesplit-auto-splitting beacuse the crates.io package is dated
 livesplit-auto-splitting = { git = "https://github.com/LiveSplit/livesplit-core" }

@@ -1,6 +1,7 @@
+use egui::Button;
 use strum::IntoEnumIterator;
 
-use crate::{hotkey_manager::HotkeyAction, settings_menu::HotkeyReloadData, timer_components::UpdateData, DeadSplit};
+use crate::{hotkey_manager::HotkeyAction, settings_menu::HotkeyReloadData, timer_components::UpdateData};
 
 use super::SettingsMenu;
 
@@ -12,6 +13,8 @@ impl SettingsMenu {
                 ui.label(update_data.hotkey_manager.get_hotkey_string(val)
                     .unwrap_or("No hotkey".to_string()));
                 if Some(val) == self.action_awaiting_bind {
+                    // Show a disabled button
+                    ui.add_enabled(false, Button::new("Awaiting input..."));
                     if let Some(key_str) = ui.input(|i| {
                         for event in &i.events {
                             match event {

@@ -11,7 +11,6 @@ use settings_menu::SettingsMenu;
 use sysinfo::{Pid, ProcessRefreshKind, RefreshKind, System};
 use timer_components::{split_component::{SplitComponent, SplitComponentConfig}, RunTimerComponent, RunTimerConfig, TimerComponent, TitleComponent, UpdateData};
 
-mod editable_run;
 mod hotkey_manager;
 mod autosplitter_manager;
 mod timer_components;
@@ -64,6 +63,15 @@ impl DeadSplit {
     pub fn reload_profile(&mut self) {
         todo!()
     }
+
+    pub fn reload_components(&mut self) {
+        let title_comp = TitleComponent::new(timer_read(&self.timer).run());
+        let timer_comp = RunTimerComponent::new(RunTimerConfig::default());
+        let split_comp = SplitComponent::new(SplitComponentConfig::default(), timer_read(&self.timer).run());
+        self.components = vec![
+            Box::new(title_comp), Box::new(split_comp), Box::new(timer_comp),
+        ];
+    }
 }
 
 // Wrapper for sysinfo::Process and read_process_memory::ProcessHandle since we really need both or none
@@ -92,59 +100,73 @@ fn get_default_run() -> Run {
 
 impl App for DeadSplit {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Holds the lock on the timer for a while, which might be an issue later.
-        // I think it'll be fine though.
-        let mut binding = timer_write(&self.timer);
-        let update_data = UpdateData {
-            snapshot: binding.snapshot(),
-            run: binding.run(),
-            hotkey_manager: &self.hotkey_mgr,
-        };
+        let mut reload_components_flag = false;
+        // Scope during which the timer binding lives
+        // This can block attempts to change other stuff, like modifying the timer setup.
+        {
+            let mut binding = timer_write(&self.timer);
+            let update_data = UpdateData {
+                snapshot: binding.snapshot(),
+                run: binding.run(),
+                hotkey_manager: &self.hotkey_mgr,
+            };
 
 
-        CentralPanel::default().show(ctx, |ui| {
-            for component in &self.components {
-                component.show(ui, &update_data);
-                ui.separator();
-            }
-            if ui.input(|i| i.pointer.secondary_clicked()) {
-                self.settings_menu.shown = true;
-            }
-        });
+            CentralPanel::default().show(ctx, |ui| {
+                for component in &self.components {
+                    component.show(ui, &update_data);
+                    ui.separator();
+                }
+                if ui.input(|i| i.pointer.secondary_clicked()) {
+                    self.settings_menu.shown = true;
+                }
+            });
 
-        if self.settings_menu.shown {
-            ctx.show_viewport_immediate(
-                egui::ViewportId::from_hash_of("DeadSplit_settings"),
-                egui::ViewportBuilder::default()
-                    .with_title("DeadSplit Settings")
-                    .with_inner_size([500.0, 500.0]), 
-                |ctx, class| {
-                    assert!(class == egui::ViewportClass::Immediate, "multiple viewports not supported");
-                    egui::CentralPanel::default().show(ctx, |ui| {
-                        self.settings_menu.show(ctx, ui, &update_data);
-                    });
+            if self.settings_menu.shown {
+                ctx.show_viewport_immediate(
+                    egui::ViewportId::from_hash_of("DeadSplit_settings"),
+                    egui::ViewportBuilder::default()
+                        .with_title("DeadSplit Settings")
+                        .with_inner_size([500.0, 500.0]), 
+                    |ctx, class| {
+                        assert!(class == egui::ViewportClass::Immediate, "multiple viewports not supported");
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            self.settings_menu.show(ctx, ui, &update_data);
+                        });
 
-                    if ctx.input(|i| i.viewport().close_requested()) {
-                        self.settings_menu.shown = false;
+                        if ctx.input(|i| i.viewport().close_requested()) {
+                            self.settings_menu.shown = false;
+                        }
+                    },
+                );
+
+                // Check if we need to reload settings
+                if let Some(data) = &self.settings_menu.hotkey_reload_data {
+                    if let Some(bind) = &data.new_bind {
+                        let _ = self.hotkey_mgr.bind_key(bind.0.clone(), bind.1);
                     }
-                },
-            );
-
-            // Check if we need to reload settings
-            if let Some(data) = &self.settings_menu.hotkey_reload_data {
-                if let Some(bind) = &data.new_bind {
-                    let _ = self.hotkey_mgr.bind_key(bind.0.clone(), bind.1);
+                    if let Some(act) = data.clear {
+                        let _ = self.hotkey_mgr.remove_key(act);
+                    }
+                    self.settings_menu.hotkey_reload_data = None;
                 }
-                if let Some(act) = data.clear {
-                    let _ = self.hotkey_mgr.remove_key(act);
+                if let Some(run) = &self.settings_menu.changed_run {
+                    let _ = binding.replace_run(run.clone(), true);
+                    self.settings_menu.changed_run = None;
+                    reload_components_flag = true;
                 }
-                self.settings_menu.hotkey_reload_data = None;
             }
+        }
+
+            // Extra reloading - done after the timer binding is no longer needed.
+        if reload_components_flag {
+            self.reload_components();
         }
 
         // Check for hotkey presses
         // Must happen AFTER visual updates so it does not interfere with the immutable snapshot.
         if let Some(action) = self.hotkey_mgr.poll_keypress() {
+            let mut binding = timer_write(&self.timer);
             match action {
                 hotkey_manager::HotkeyAction::StartSplit => binding.split_or_start(),
                 hotkey_manager::HotkeyAction::Pause => binding.pause(),

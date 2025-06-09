@@ -1,11 +1,32 @@
-use std::{fs, path::PathBuf};
+use std::{fs, path::PathBuf, str::FromStr};
 
-use livesplit_core::{layout::parser, run::parser::{composite, parse}, Run};
+use egui::DragValue;
+use livesplit_core::{layout::parser, run::parser::{composite, parse}, timing::formatter::TimeFormatter, Run, Segment, TimeSpan};
 use rfd::FileDialog;
 
 use crate::timer_components::UpdateData;
 
 use super::SettingsMenu;
+
+#[derive(Default)]
+pub struct SplitMenuData {
+    pub name: String,
+    pub pb_igt_str: String,
+    pub pb_rta_str: String,
+    pub best_igt_str: String,
+    pub best_rta_str: String,
+}
+
+#[derive(Default)]
+pub struct RunMenuData {
+    pub generated: bool,
+    pub game_name_str: String,
+    pub cat_name_str: String,
+    pub attempt_val: u32,
+    pub offset_str: String,
+    pub split_data: Vec<SplitMenuData>,
+    pub use_game_time_vals: bool,
+}
 
 impl SettingsMenu {
     pub fn show_run_menu(&mut self, ui: &mut egui::Ui, update_data: &UpdateData) {
@@ -39,6 +60,133 @@ impl SettingsMenu {
                 self.changed_run = Some(crate::get_default_run());
             }
         });
+
+        if let Some(run) = &mut self.changed_run {
+            if !self.run_menu_data.generated {
+                self.run_menu_data.generated = true;
+                // Populate the run editor with the run data.
+                self.run_menu_data.game_name_str = run.game_name().to_owned();
+                self.run_menu_data.cat_name_str = run.category_name().to_owned();
+                self.run_menu_data.attempt_val = run.attempt_count();
+                self.run_menu_data.offset_str = self.time_formatter.format(run.offset())
+                    .to_string();
+
+                self.run_menu_data.split_data.clear();
+                for split in run.segments() {
+                    self.run_menu_data.split_data.push(SplitMenuData {
+                        name: split.name().to_owned(),
+                        pb_igt_str: self.time_formatter.format(
+                            split.personal_best_split_time().game_time).to_string(),
+                        pb_rta_str: self.time_formatter.format(
+                            split.personal_best_split_time().real_time).to_string(),
+                        best_igt_str: self.time_formatter.format(
+                            split.best_segment_time().game_time).to_string(),
+                        best_rta_str: self.time_formatter.format(
+                            split.best_segment_time().real_time).to_string(),
+
+                    });
+                }
+            }
+            // Edit basic run data - game name, category name, etc
+            ui.horizontal(|ui| {
+                ui.label("Game name: ");
+                if ui.text_edit_singleline(&mut self.run_menu_data.game_name_str).changed() {
+                    run.set_game_name(self.run_menu_data.game_name_str.to_owned());
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Category name: ");
+                if ui.text_edit_singleline(&mut self.run_menu_data.cat_name_str).changed() {
+                    run.set_category_name(self.run_menu_data.cat_name_str.to_owned());
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Attempt count: ");
+                if ui.add(DragValue::new(&mut self.run_menu_data.attempt_val)).changed() {
+                    run.set_attempt_count(self.run_menu_data.attempt_val);
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Timer offset: ");
+                if ui.text_edit_singleline(&mut self.run_menu_data.offset_str).lost_focus() {
+                    if let Ok(t) = TimeSpan::from_str(&self.run_menu_data.offset_str) {
+                        run.set_offset(t);
+                    }
+                    self.run_menu_data.offset_str = self.time_formatter.format(run.offset())
+                        .to_string();
+                }
+            });
+
+            // Split editor
+            ui.checkbox(&mut self.run_menu_data.use_game_time_vals, "Show game times");
+            if (ui.button("Add New Segment")).clicked() {
+                run.push_segment(Segment::new("New Segment"));
+                self.run_menu_data.split_data.push(SplitMenuData {
+                    name: "New Segment".to_owned(),
+                    ..Default::default()
+                });
+            }
+            for i in 0..self.run_menu_data.split_data.len() {
+                let segment = run.segment_mut(i);
+                ui.separator();
+                if let Some(data) = self.run_menu_data.split_data.get_mut(i) {
+                    if ui.text_edit_singleline(&mut data.name).lost_focus() {
+                        segment.set_name(data.name.to_owned());
+                    }
+                    if self.run_menu_data.use_game_time_vals {
+                        ui.horizontal(|ui| {
+                            ui.label("PB Split Time (IGT)");
+                            if ui.text_edit_singleline(&mut data.pb_igt_str).lost_focus() {
+                                if let Ok(t) = TimeSpan::from_str(&data.pb_igt_str) {
+                                    segment.personal_best_split_time_mut().game_time = Some(t);
+                                }
+                                data.pb_igt_str = self.time_formatter.format(segment.personal_best_split_time().game_time)
+                                    .to_string();
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Best Split Time (IGT)");
+                            if ui.text_edit_singleline(&mut data.best_igt_str).lost_focus() {
+                                if let Ok(t) = TimeSpan::from_str(&data.best_igt_str) {
+                                    segment.best_segment_time_mut().game_time = Some(t);
+                                }
+                                data.best_igt_str = self.time_formatter.format(segment.best_segment_time().game_time)
+                                    .to_string();
+                            }
+                        });
+                    } else {
+                        ui.horizontal(|ui| {
+                            ui.label("PB Split Time (RTA)");
+                            if ui.text_edit_singleline(&mut data.pb_rta_str).lost_focus() {
+                                if let Ok(t) = TimeSpan::from_str(&data.pb_rta_str) {
+                                    segment.personal_best_split_time_mut().real_time = Some(t);
+                                }
+                                data.pb_rta_str = self.time_formatter.format(segment.personal_best_split_time().real_time)
+                                    .to_string();
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Best Split Time (RTA)");
+                            if ui.text_edit_singleline(&mut data.best_rta_str).lost_focus() {
+                                if let Ok(t) = TimeSpan::from_str(&data.best_rta_str) {
+                                    segment.best_segment_time_mut().real_time = Some(t);
+                                }
+                                data.best_rta_str = self.time_formatter.format(segment.best_segment_time().real_time)
+                                    .to_string();
+                            }
+                        });
+
+                    }
+                }
+                ui.separator();
+            }
+        } else {
+            if ui.button("Edit splits data...").clicked() {
+                self.changed_run = Some(update_data.run.clone());
+            }
+
+            // TODO: Show all the run data, view-only
+        }
     }
 }
 

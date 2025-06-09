@@ -140,7 +140,7 @@ impl App for DeadSplit {
                     },
                 );
 
-                // Check if we need to reload settings
+                // We can reload hotkey data immediately, this makes rebinding work correctly.
                 if let Some(data) = &self.settings_menu.hotkey_reload_data {
                     if let Some(bind) = &data.new_bind {
                         let _ = self.hotkey_mgr.bind_key(bind.0.clone(), bind.1);
@@ -150,10 +150,14 @@ impl App for DeadSplit {
                     }
                     self.settings_menu.hotkey_reload_data = None;
                 }
-                if let Some(run) = &self.settings_menu.changed_run {
-                    let _ = binding.replace_run(run.clone(), true);
-                    self.settings_menu.changed_run = None;
-                    reload_components_flag = true;
+
+                // Check if we need to reload settings
+                if !self.settings_menu.shown {
+                    if let Some(run) = &self.settings_menu.changed_run {
+                        let _ = binding.replace_run(run.clone(), true);
+                        self.settings_menu.changed_run = None;
+                        reload_components_flag = true;
+                    }
                 }
             }
         }

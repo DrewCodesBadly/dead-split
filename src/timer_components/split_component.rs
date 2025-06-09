@@ -150,13 +150,36 @@ impl TimerComponent for SplitComponent {
         }
 
         // Render the slice that is currently visible
-        let start_idx = (relative_current_idx + self.config.shown_ahead_splits)
-            .checked_sub(self.config.num_splits_shown).unwrap_or(0);
-        for split in &splits[start_idx..=relative_current_idx] {
+        let mut show_last_split = self.config.always_show_last_split;
+        let end_idx = {
+            let mut n = relative_current_idx  + self.config.shown_ahead_splits;
+            if n >= splits.len() {
+                n = splits.len() - 1;
+                show_last_split = false;
+            }
+            n
+        };
+        let start_idx = end_idx.checked_sub(
+            self.config.num_splits_shown - if show_last_split { 1 } else { 0 }
+        ).unwrap_or(0);
+        for split in &splits[start_idx..relative_current_idx] {
             // TODO: Active vs inactive splits
-            split.show(ui, update_data, true);
+            split.show(ui, update_data, false);
         }
+        splits[relative_current_idx].show(ui, update_data, true);
+        for split in &splits[(relative_current_idx + 1)..=end_idx] {
+            split.show(ui, update_data, false);
+        }
+
         // Render the last split, if we have to.
+        if show_last_split {
+            if let Some(split) = splits.last() {
+                if self.config.show_last_split_separator {
+                    ui.separator();
+                }
+                split.show(ui, update_data, false);
+            }
+        }
     }
 }
 

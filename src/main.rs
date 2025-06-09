@@ -61,7 +61,7 @@ impl DeadSplit {
         }
     }
 
-    pub fn reload_layout() {
+    pub fn reload_profile(&mut self) {
         todo!()
     }
 }
@@ -92,11 +92,16 @@ fn get_default_run() -> Run {
 
 impl App for DeadSplit {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let binding = timer_read(&self.timer);
+        // Holds the lock on the timer for a while, which might be an issue later.
+        // I think it'll be fine though.
+        let mut binding = timer_write(&self.timer);
         let update_data = UpdateData {
             snapshot: binding.snapshot(),
             run: binding.run(),
+            hotkey_manager: &self.hotkey_mgr,
         };
+
+
         CentralPanel::default().show(ctx, |ui| {
             for component in &self.components {
                 component.show(ui, &update_data);
@@ -116,14 +121,45 @@ impl App for DeadSplit {
                 |ctx, class| {
                     assert!(class == egui::ViewportClass::Immediate, "multiple viewports not supported");
                     egui::CentralPanel::default().show(ctx, |ui| {
-                        self.settings_menu.show(ctx, ui);
+                        self.settings_menu.show(ctx, ui, &update_data);
                     });
 
                     if ctx.input(|i| i.viewport().close_requested()) {
                         self.settings_menu.shown = false;
                     }
-                });
+                },
+            );
+
+            // Check if we need to reload settings
+            if let Some(data) = &self.settings_menu.hotkey_reload_data {
+                if let Some(bind) = &data.new_bind {
+                    let _ = self.hotkey_mgr.bind_key(bind.0.clone(), bind.1);
+                }
+                if let Some(act) = data.clear {
+                    let _ = self.hotkey_mgr.remove_key(act);
+                }
+                self.settings_menu.hotkey_reload_data = None;
+            }
         }
+
+        // Check for hotkey presses
+        // Must happen AFTER visual updates so it does not interfere with the immutable snapshot.
+        if let Some(action) = self.hotkey_mgr.poll_keypress() {
+            match action {
+                hotkey_manager::HotkeyAction::StartSplit => binding.split_or_start(),
+                hotkey_manager::HotkeyAction::Pause => binding.pause(),
+                hotkey_manager::HotkeyAction::Unpause => binding.resume(),
+                hotkey_manager::HotkeyAction::TogglePause => binding.toggle_pause(),
+                // who in their right mind wants to reset without updating splits
+                // just go fix it after if it's wrong??
+                hotkey_manager::HotkeyAction::Reset => binding.reset(true),
+                hotkey_manager::HotkeyAction::OpenSettings => self.settings_menu.shown = true,
+            }
+        }
+
+        // Constantly redraw - might be able to time this a little better,
+        // but the timer needs to repaint 24/7 anyway.
+        ctx.request_repaint();
     }
 }
 

@@ -1,14 +1,37 @@
-use std::{collections::HashMap, str::FromStr, sync::{Arc, RwLock}};
-
+use std::{collections::HashMap, fmt::Display, str::FromStr, sync::{Arc, RwLock}};
 use global_hotkey::{hotkey::HotKey, GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use livesplit_core::hotkey::{Hook, Hotkey};
+use strum::EnumIter;
+
+#[derive(PartialEq, Eq, Hash, Clone, Copy, EnumIter)]
+pub enum HotkeyAction {
+    StartSplit,
+    Pause,
+    Unpause,
+    TogglePause,
+    Reset,
+    OpenSettings,
+}
+
+impl Display for HotkeyAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HotkeyAction::StartSplit => f.write_str("Start/Split"),
+            HotkeyAction::Pause => f.write_str("Pause"),
+            HotkeyAction::Unpause => f.write_str("Unpause"),
+            HotkeyAction::TogglePause => f.write_str("Toggle Paused"),
+            HotkeyAction::Reset => f.write_str("Reset"),
+            HotkeyAction::OpenSettings => f.write_str("Open Settings Window"),
+        }
+    }
+}
 
 pub struct HotkeyManager {
     wayland_hook: Option<Hook>,
     x11_manager: Option<GlobalHotKeyManager>,
-    string_map: HashMap<i32, String>,
-    key_map: HashMap<u32, i32>, // Only used with X11
-    last_pressed_index: Arc<RwLock<Option<i32>>>, // Only used with Wayland
+    string_map: HashMap<HotkeyAction, String>,
+    key_map: HashMap<u32, HotkeyAction>, // Only used with X11
+    last_pressed_index: Arc<RwLock<Option<HotkeyAction>>>, // Only used with Wayland
 }
 
 impl HotkeyManager {
@@ -32,15 +55,15 @@ impl HotkeyManager {
         } 
     }
 
-    pub fn bind_key(&mut self, key_string: String, hotkey_idx: i32) -> Result<(), ()> {
+    pub fn bind_key(&mut self, key_string: String, action: HotkeyAction) -> Result<(), ()> {
         if let Some(hook) = &self.wayland_hook {
             match Hotkey::from_str(&key_string) {
                 Ok(hotkey) => {
-                    self.string_map.insert(hotkey_idx, key_string);
+                    self.string_map.insert(action, key_string);
                     let arc = self.last_pressed_index.clone();
                     let _ = hook.register(hotkey, move || {
                     let mut bind = arc.try_write().unwrap();
-                    *bind = Some(hotkey_idx);
+                    *bind = Some(action);
                     });
                 }
                 Err(_) => {
@@ -50,8 +73,8 @@ impl HotkeyManager {
         } else if let Some(manager) = &self.x11_manager {
             match HotKey::from_str(&key_string) {
                 Ok(hotkey) => {
-                    self.string_map.insert(hotkey_idx, key_string);
-                    self.key_map.insert(hotkey.id, hotkey_idx);
+                    self.string_map.insert(action, key_string);
+                    self.key_map.insert(hotkey.id, action);
                     let _ = manager.register(hotkey);
                 }
                 _ => return Err(()),
@@ -61,8 +84,8 @@ impl HotkeyManager {
         Ok(())
     }
 
-    pub fn remove_key(&mut self, hotkey_id: i32) -> Result<(), ()> {
-        let key_string = match self.string_map.get(&hotkey_id) {
+    pub fn remove_key(&mut self, action: HotkeyAction) -> Result<(), ()> {
+        let key_string = match self.string_map.get(&action) {
             Some(s) => s,
             None => return Err(()),
         };
@@ -80,18 +103,18 @@ impl HotkeyManager {
 
     // Called every frame by the timer. Checks for a key press.
     // If a hotkey is pressed, it's associated ID is returned.
-    pub fn poll_keypress(&mut self) -> Option<i32> {
+    pub fn poll_keypress(&mut self) -> Option<HotkeyAction> {
         if self.wayland_hook.is_some() {
-            let last_pressed_index: Option<i32>;
+            let last_pressed_index: Option<HotkeyAction>;
             // Make sure the lock is dropped before we try writing to it later.
             {
                 last_pressed_index = *self.last_pressed_index.try_read().unwrap();
             }
-            if let Some(idx) = last_pressed_index {
+            if let Some(action) = last_pressed_index {
                 // Clear the last pressed hotkey
                 let mut bind = self.last_pressed_index.try_write().unwrap();
                 *bind = None;
-                return Some(idx)
+                return Some(action)
             }
         }
         else {
@@ -107,7 +130,7 @@ impl HotkeyManager {
         None
     }
 
-    pub fn get_hotkey_string(&self, hotkey_id: i32) -> Option<String> {
-        self.string_map.get(&hotkey_id).cloned()
+    pub fn get_hotkey_string(&self, action: HotkeyAction) -> Option<String> {
+        self.string_map.get(&action).cloned()
     }
 }

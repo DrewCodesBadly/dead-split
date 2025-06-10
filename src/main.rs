@@ -113,7 +113,7 @@ impl App for DeadSplit {
 
 
             CentralPanel::default().show(ctx, |ui| {
-                for component in &self.components {
+                for component in &mut self.components {
                     component.show(ui, &update_data);
                     ui.separator();
                 }

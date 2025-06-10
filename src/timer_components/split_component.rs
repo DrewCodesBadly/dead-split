@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::{cmp::min};
 
 use livesplit_core::Run;
 
@@ -7,6 +7,8 @@ use super::{TimerComponent, UpdateData};
 pub struct SplitComponent {
     config: SplitComponentConfig,
     subsplit_map: SubsplitMap,
+    last_real_segment: usize,
+    segment_pos: usize,
 }
 
 pub struct SplitRenderer {
@@ -16,7 +18,6 @@ pub struct SplitRenderer {
 
 pub struct SubsplitContainer {
     pub start_idx: usize,
-    pub end_idx: usize,
     pub splits: Vec<SplitRenderer>,
     pub header: SplitRenderer,
 }
@@ -87,7 +88,6 @@ impl SubsplitMap {
                 subsplits.push(SubsplitContainer {
                     start_idx,
                     splits: subsplit_list,
-                    end_idx: i,
                     header: SplitRenderer::subsplit_header_from_run_index(run, i),
                 });
             } else {
@@ -95,7 +95,6 @@ impl SubsplitMap {
                 subsplits.push(SubsplitContainer {
                     start_idx: i,
                     splits: Vec::new(),
-                    end_idx: i,
                     header: SplitRenderer::subsplit_header_from_run_index(run, i),
                 });
                 i += 1;
@@ -117,21 +116,29 @@ impl SubsplitMap {
         }
         0 // fail! idx was probably larger than the actual list of segments.
     }
-
-    pub fn last_split(&self) -> &SplitRenderer {
-        todo!();
-    }
 }
 
 impl TimerComponent for SplitComponent {
-    fn show(&self, ui: &mut egui::Ui, update_data: &UpdateData) {
-        let shown_splits = self.config.num_splits_shown - if self.config.always_show_last_split { 1 } else { 0 }; 
-        let mut ahead_split_count: usize = 0;
-        let current_idx = update_data.snapshot.current_split_index().unwrap_or(0);
-        
+    fn show(&mut self, ui: &mut egui::Ui, update_data: &UpdateData) {
+        // Figure out the current index, accounting for scrolling and timer changes.
+        let current_timer_idx = update_data.snapshot.current_split_index().unwrap_or(0);
+        if current_timer_idx != self.last_real_segment {
+            self.last_real_segment = current_timer_idx;
+            self.segment_pos = current_timer_idx;
+        }
+        let scroll_dist = ui.input(|i| i.raw_scroll_delta.y);
+        match scroll_dist.partial_cmp(&0.0) {
+            Some(ord) => match ord {
+                std::cmp::Ordering::Equal => {},
+                std::cmp::Ordering::Less => self.segment_pos = min(self.segment_pos + 1, update_data.run.segments().len() - 1),
+                std::cmp::Ordering::Greater => self.segment_pos = self.segment_pos.checked_sub(1).unwrap_or(0),
+            }
+            None => {},
+        }
+
         // Make the full list of splits
         let mut splits: Vec<&SplitRenderer> = Vec::new();
-        let current_subsplit = self.subsplit_map.get_subsplit_index(current_idx);
+        let current_subsplit = self.subsplit_map.get_subsplit_index(self.segment_pos);
         for subsplit in &self.subsplit_map.subsplits[0..current_subsplit] {
             splits.push(&subsplit.header);
         }
@@ -140,7 +147,7 @@ impl TimerComponent for SplitComponent {
         let mut relative_current_idx = splits.len() - 1;
         for split in &current_subsplit_container.splits {
             splits.push(split);
-            if split.comparison_index == current_idx {
+            if split.comparison_index == self.segment_pos {
                 relative_current_idx = splits.len() - 1;
             }
         }
@@ -151,17 +158,20 @@ impl TimerComponent for SplitComponent {
 
         // Render the slice that is currently visible
         let mut show_last_split = self.config.always_show_last_split;
+        let real_shown_splits_num: usize;
         let end_idx = {
             let mut n = relative_current_idx  + self.config.shown_ahead_splits;
-            if n >= splits.len() {
+            if n >= splits.len() - 1 {
                 n = splits.len() - 1;
                 show_last_split = false;
             }
+            real_shown_splits_num = self.config.num_splits_shown - if show_last_split { 1 } else { 0 };
+            if n < real_shown_splits_num - 1 {
+                n = min(real_shown_splits_num - 1, splits.len() - 1);
+            }
             n
         };
-        let start_idx = end_idx.checked_sub(
-            self.config.num_splits_shown - if show_last_split { 1 } else { 0 }
-        ).unwrap_or(0);
+        let start_idx = end_idx.checked_sub(real_shown_splits_num - 1).unwrap_or(0);
         for split in &splits[start_idx..relative_current_idx] {
             // TODO: Active vs inactive splits
             split.show(ui, update_data, false);
@@ -188,6 +198,8 @@ impl SplitComponent {
         Self {
             config,
             subsplit_map: SubsplitMap::from_run(run),
+            last_real_segment: 0,
+            segment_pos: 0,
         }
     }
 }

@@ -99,13 +99,15 @@ impl App for DeadSplit {
         // This can block attempts to change other stuff, like modifying the timer setup.
         {
             let mut binding = timer_write(&self.timer);
+            if !binding.is_game_time_initialized() {
+                binding.initialize_game_time();
+            }
             let update_data = UpdateData {
                 snapshot: binding.snapshot(),
                 run: binding.run(),
                 hotkey_manager: &self.hotkey_mgr,
                 autosplitter_manager: &self.autosplitter_manager,
             };
-
 
             CentralPanel::default().show(ctx, |ui| {
                 for component in &mut self.components {

@@ -162,26 +162,35 @@ impl App for DeadSplit {
             }
         }
 
-            // Extra reloading - done after the timer binding is no longer needed.
-        if reload_components_flag {
-            self.reload_components();
-        }
-
         // Check for hotkey presses
         // Must happen AFTER visual updates so it does not interfere with the immutable snapshot.
         if let Some(action) = self.hotkey_mgr.poll_keypress() {
             let mut binding = timer_write(&self.timer);
             match action {
-                hotkey_manager::HotkeyAction::StartSplit => binding.split_or_start(),
+                hotkey_manager::HotkeyAction::StartSplit => {
+                    binding.split_or_start();
+                    if binding.current_phase() == TimerPhase::Ended {
+                        reload_components_flag = true;
+                    }
+                }
                 hotkey_manager::HotkeyAction::Pause => binding.pause(),
                 hotkey_manager::HotkeyAction::Unpause => binding.resume(),
                 hotkey_manager::HotkeyAction::TogglePause => binding.toggle_pause(),
                 // who in their right mind wants to reset without updating splits
                 // just go fix it after if it's wrong??
-                hotkey_manager::HotkeyAction::Reset => binding.reset(true),
+                hotkey_manager::HotkeyAction::Reset => {
+                    binding.reset(true);
+                    reload_components_flag = true;
+                },
                 hotkey_manager::HotkeyAction::OpenSettings => self.settings_menu.shown = true,
             }
         }
+
+        // Extra reloading - done after the timer binding is no longer needed.
+        if reload_components_flag {
+            self.reload_components();
+        }
+
 
         // Constantly redraw - might be able to time this a little better,
         // but the timer needs to repaint 24/7 anyway.

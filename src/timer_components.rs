@@ -1,4 +1,4 @@
-use livesplit_core::{timing::{formatter::{timer::Fraction, Accuracy, SegmentTime, TimeFormatter}, Snapshot}, Run};
+use livesplit_core::{timing::{formatter::{Accuracy, SegmentTime, TimeFormatter}, Snapshot}, Run};
 
 use crate::hotkey_manager::HotkeyManager;
 

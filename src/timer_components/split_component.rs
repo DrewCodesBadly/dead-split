@@ -1,6 +1,7 @@
 use std::{cmp::min};
 
-use livesplit_core::Run;
+use egui::Grid;
+use livesplit_core::{timing::formatter::{self, Accuracy, TimeFormatter}, Run, TimeSpan, TimerPhase};
 
 use super::{TimerComponent, UpdateData};
 
@@ -9,6 +10,8 @@ pub struct SplitComponent {
     subsplit_map: SubsplitMap,
     last_real_segment: usize,
     segment_pos: usize,
+    segment_formatter: formatter::Regular,
+    delta_formatter: formatter::Delta,
 }
 
 pub struct SplitRenderer {
@@ -27,8 +30,89 @@ pub struct SubsplitMap {
 }
 
 impl SplitRenderer {
-    pub fn show(&self, ui: &mut egui::Ui, update_data: &UpdateData, active: bool) {
+    pub fn show(&self, ui: &mut egui::Ui, update_data: &UpdateData, active: bool, component: &SplitComponent) {
+        // This may panic but uhhh that's how it's implemented i guess and it *shouldn't*
+        let segment = update_data.run.segment(self.comparison_index);
+        let (time, comparison_time, best_time, seg_time) = {
+            let comp = segment.comparison(update_data.snapshot.current_comparison());
+            let t = update_data.snapshot.current_time();
+            let best = segment.best_segment_time();
+            match update_data.snapshot.current_timing_method() {
+                livesplit_core::TimingMethod::GameTime => (
+                    t.game_time, 
+                    comp.game_time, 
+                    best.game_time,
+                    segment.split_time().game_time,
+                ),
+                livesplit_core::TimingMethod::RealTime => (
+                    t.real_time, 
+                    comp.real_time, 
+                    best.real_time,
+                    segment.split_time().real_time,
+                ),
+            }
+        };
+        // TODO: Show icon
+
+        // Show name
         ui.label(&self.name);
+
+        // Handle segment delta
+        match update_data.snapshot.current_phase() {
+            TimerPhase::Running | TimerPhase::Paused => {
+                match self.comparison_index.cmp(&update_data.snapshot.current_split_index().unwrap_or(0)) {
+                    std::cmp::Ordering::Greater => {
+                        ui.label("");
+                    },
+                    std::cmp::Ordering::Equal => {
+                        let t_secs = time.map(|t| t.total_seconds()).unwrap_or(0.0);
+                        if let Some(t) =  comparison_time.map(|t| t.total_seconds()) {
+                            let delta = t_secs - t;
+                            // Check if we need to show the split
+                            if delta > 0.0 || best_time.filter(|t| t_secs > t.total_seconds()).is_some() {
+                                ui.label(component.delta_formatter.format(TimeSpan::from_seconds(delta)).to_string());
+                            } else {
+                                ui.label("");
+                            }
+                        } else {
+                            ui.label("");
+                        }
+                    },
+                    std::cmp::Ordering::Less => {
+                        // Display delta with colored times.
+                        let t_secs = seg_time.map(|t| t.total_seconds()).unwrap_or(0.0);
+                        if let Some(t) =  comparison_time.map(|t| t.total_seconds()) {
+                            let delta = t_secs - t;
+                            ui.label(component.delta_formatter.format(TimeSpan::from_seconds(delta)).to_string());
+                            // TODO: Colors
+                        } else {
+                            ui.label("--");
+                        }
+                    },
+                }
+            },
+            TimerPhase::Ended => {
+                // Only ever shows the finished split times
+                let t_secs = seg_time.map(|t| t.total_seconds()).unwrap_or(0.0);
+                if let Some(t) =  comparison_time.map(|t| t.total_seconds()) {
+                    let delta = t_secs - t;
+                    // Check if we need to show the split
+                    if delta > 0.0 || best_time.filter(|t| t_secs > t.total_seconds()).is_some() {
+                        ui.label(component.delta_formatter.format(TimeSpan::from_seconds(delta)).to_string());
+                    }
+                } else {
+                    // Skips drawing delta when we aren't comparing to a split.
+                    ui.label("--");
+                }
+            },
+            TimerPhase::NotRunning => {
+                ui.label("");
+            },
+        }
+        // Display segment time(s)
+        ui.label(component.segment_formatter.format(comparison_time).to_string());
+
+        ui.end_row();
     }
 
     pub fn from_run_index(run: &Run, idx: usize) -> Self {
@@ -167,39 +251,50 @@ impl TimerComponent for SplitComponent {
             }
             real_shown_splits_num = self.config.num_splits_shown - if show_last_split { 1 } else { 0 };
             if n < real_shown_splits_num - 1 {
-                n = min(real_shown_splits_num - 1, splits.len() - 1);
+                if real_shown_splits_num - 1 < splits.len() - 1 {
+                    n = real_shown_splits_num - 1;
+                } else {
+                    n = splits.len() - 1;
+                    show_last_split = false;
+                }
             }
             n
         };
         let start_idx = end_idx.checked_sub(real_shown_splits_num - 1).unwrap_or(0);
-        for split in &splits[start_idx..relative_current_idx] {
-            // TODO: Active vs inactive splits
-            split.show(ui, update_data, false);
-        }
-        splits[relative_current_idx].show(ui, update_data, true);
-        for split in &splits[(relative_current_idx + 1)..=end_idx] {
-            split.show(ui, update_data, false);
-        }
 
-        // Render the last split, if we have to.
-        if show_last_split {
-            if let Some(split) = splits.last() {
-                if self.config.show_last_split_separator {
-                    ui.separator();
-                }
-                split.show(ui, update_data, false);
+        Grid::new("SplitsGrid").show(ui, |ui| {
+            for split in &splits[start_idx..relative_current_idx] {
+                // TODO: Active vs inactive splits
+                split.show(ui, update_data, false, self);
             }
-        }
+            splits[relative_current_idx].show(ui, update_data, true, self);
+            for split in &splits[(relative_current_idx + 1)..=end_idx] {
+                split.show(ui, update_data, false, self);
+            }
+
+            // Render the last split, if we have to.
+            if show_last_split {
+                if let Some(split) = splits.last() {
+                    if self.config.show_last_split_separator {
+                        ui.separator();
+                        ui.end_row();
+                    }
+                    split.show(ui, update_data, false, self);
+                }
+            }
+        });
     }
 }
 
 impl SplitComponent {
     pub fn new(config: SplitComponentConfig, run: &Run) -> Self {
         Self {
-            config,
             subsplit_map: SubsplitMap::from_run(run),
             last_real_segment: 0,
             segment_pos: 0,
+            segment_formatter: formatter::Regular::with_accuracy(config.segment_time_accuracy),
+            delta_formatter: formatter::Delta::custom(true, config.delta_accuracy),
+            config,
         }
     }
 }
@@ -209,6 +304,8 @@ pub struct SplitComponentConfig {
     pub always_show_last_split: bool,
     pub show_last_split_separator: bool,
     pub shown_ahead_splits: usize,
+    pub segment_time_accuracy: Accuracy,
+    pub delta_accuracy: Accuracy,
 }
 
 impl Default for SplitComponentConfig {
@@ -218,6 +315,8 @@ impl Default for SplitComponentConfig {
             always_show_last_split: true,
             show_last_split_separator: true,
             shown_ahead_splits: 1,
+            segment_time_accuracy: Accuracy::Seconds,
+            delta_accuracy: Accuracy::Hundredths,
         }
     }
 }

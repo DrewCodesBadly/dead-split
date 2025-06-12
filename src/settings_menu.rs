@@ -11,6 +11,7 @@ mod hotkey_menu;
 
 #[derive(Default)]
 pub struct HotkeyReloadData {
+    pub x11_hotkeys: bool,
     pub clear: Option<HotkeyAction>,
     pub new_bind: Option<(String, HotkeyAction)>,
 }

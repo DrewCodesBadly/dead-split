@@ -55,6 +55,34 @@ impl HotkeyManager {
         } 
     }
 
+    pub fn new_with_type(&self, x11: bool) -> Self {
+        if x11 {
+            Self {
+                wayland_hook: None,
+                x11_manager: Some(GlobalHotKeyManager::new()
+                    .expect("Failed to create global hotkey manager.")),
+                string_map: self.string_map.clone(),
+                key_map: self.key_map.clone(),
+                last_pressed_index: Arc::new(None.into()),
+            }
+        } else {
+            Self {
+                wayland_hook: Some(Hook::new()
+                    .expect("Failed to create global hotkey hook.")),
+                x11_manager: None,
+                string_map: self.string_map.clone(),
+                key_map: self.key_map.clone(),
+                last_pressed_index: Arc::new(None.into()),
+            }
+        }
+    }
+
+    pub fn setup_old_keys(&mut self) {
+        for (k, v) in self.string_map.clone() {
+            let _ = self.bind_key(v.to_owned(), k.clone());
+        }
+    }
+
     pub fn bind_key(&mut self, key_string: String, action: HotkeyAction) -> Result<(), ()> {
         if let Some(hook) = &self.wayland_hook {
             match Hotkey::from_str(&key_string) {
@@ -132,5 +160,9 @@ impl HotkeyManager {
 
     pub fn get_hotkey_string(&self, action: HotkeyAction) -> Option<String> {
         self.string_map.get(&action).cloned()
+    }
+
+    pub fn is_x11(&self) -> bool {
+        return self.x11_manager.is_some();
     }
 }

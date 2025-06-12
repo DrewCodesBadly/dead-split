@@ -7,6 +7,20 @@ use super::SettingsMenu;
 
 impl SettingsMenu {
     pub fn show_hotkey_menu(&mut self, ui: &mut egui::Ui, update_data: &UpdateData) {
+        // Toggle to switch between wayland/x11 hotkeys (using livesplit-core or tauri)
+        let mut x11_compat = update_data.hotkey_manager.is_x11();
+        if ui.checkbox(&mut x11_compat, "Use X11 Compatible Hotkeys").changed() {
+            if let Some(data) = &mut self.hotkey_reload_data {
+                data.x11_hotkeys = x11_compat;
+            } else {
+                self.hotkey_reload_data = Some(HotkeyReloadData {
+                    x11_hotkeys: x11_compat,
+                    clear: None,
+                    new_bind: None,
+                });
+            } 
+        }
+
         for val in HotkeyAction::iter() {
             ui.horizontal(|ui| {
                 ui.label(val.to_string() + &":");
@@ -51,6 +65,7 @@ impl SettingsMenu {
                             data.new_bind = Some((key_str, val));
                         } else {
                             self.hotkey_reload_data = Some(HotkeyReloadData {
+                                x11_hotkeys: x11_compat,
                                 clear: None,
                                 new_bind: Some((key_str, val)),
                             });

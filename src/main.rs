@@ -19,9 +19,6 @@ mod settings_menu;
 struct DeadSplit {
     // TODO: avoid unwraps?
     timer: SharedTimer,
-    current_time: f64,
-    current_game_time: f64,
-    current_split_index: i32,
     hotkey_mgr: HotkeyManager,
     system: System,
     attached_process: Option<ProcessData>,
@@ -40,9 +37,6 @@ impl DeadSplit {
         let split_comp = SplitComponent::new(SplitComponentConfig::default(), timer_read(&timer).run());
         Self {
             timer: timer,
-            current_time: 0.0,
-            current_game_time: 0.0,
-            current_split_index: -1,
             hotkey_mgr: HotkeyManager::new_wayland(Hook::new().expect("Failed to create hotkey hook")),
             system: System::new_with_specifics(RefreshKind::nothing().with_processes(
                 ProcessRefreshKind::nothing().with_exe(sysinfo::UpdateKind::OnlyIfNotSet),
@@ -142,12 +136,16 @@ impl App for DeadSplit {
 
                 // We can reload hotkey data immediately, this makes rebinding work correctly.
                 if let Some(data) = &self.settings_menu.hotkey_reload_data {
+                    self.hotkey_mgr = self.hotkey_mgr.new_with_type(data.x11_hotkeys);
+                    self.hotkey_mgr.setup_old_keys();
+
                     if let Some(bind) = &data.new_bind {
                         let _ = self.hotkey_mgr.bind_key(bind.0.clone(), bind.1);
                     }
                     if let Some(act) = data.clear {
                         let _ = self.hotkey_mgr.remove_key(act);
                     }
+
                     self.settings_menu.hotkey_reload_data = None;
                 }
 

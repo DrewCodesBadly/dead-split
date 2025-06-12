@@ -1,6 +1,6 @@
 use std::{cmp::min};
 
-use egui::Grid;
+use egui::{hex_color, Color32, Grid};
 use livesplit_core::{timing::formatter::{self, Accuracy, TimeFormatter}, Run, TimeSpan, TimerPhase};
 
 use super::{TimerComponent, UpdateData};
@@ -30,6 +30,60 @@ pub struct SubsplitMap {
 }
 
 impl SplitRenderer {
+    fn get_delta_color(&self, update_data: &UpdateData, delta: f64, component: &SplitComponent, best_time: Option<TimeSpan>, t_secs: f64) -> Color32 {
+        if best_time.filter(|t| t.total_seconds() < t_secs).is_none() {
+            component.config.best_segment_color
+        } else {
+            if let Some(last_delta) = {
+                if self.comparison_index > 0 {
+                    let seg = update_data.run.segment(self.comparison_index - 1);
+                    let comp = seg.comparison(update_data.snapshot.current_comparison());
+                    let time = seg.split_time();
+                    match update_data.snapshot.current_timing_method() {
+                        livesplit_core::TimingMethod::GameTime => {
+                            let comp_secs = comp.game_time.map(|t| t.total_seconds());
+                            if let Some(t) =  time.game_time.map(|t| t.total_seconds()) {
+                                comp_secs.map(|comp_secs_time| t - comp_secs_time)
+                            } else {
+                                None
+                            }
+                        },
+                        livesplit_core::TimingMethod::RealTime => {
+                            let comp_secs = comp.real_time.map(|t| t.total_seconds());
+                            if let Some(t) =  time.real_time.map(|t| t.total_seconds()) {
+                                comp_secs.map(|comp_secs_time| t - comp_secs_time)
+                            } else {
+                                None
+                            }
+
+                        },
+                    }
+                } else {
+                    None
+                }
+            } {
+                let gaining = last_delta > delta;
+                if delta > 0.0 {
+                    if gaining {
+                        component.config.behind_gaining_color
+                    } else {
+                        component.config.behind_losing_color
+                    }
+                } else if gaining {
+                    component.config.ahead_gaining_color
+                } else {
+                    component.config.ahead_losing_color
+                }
+            } else {
+                if delta > 0.0 {
+                    component.config.behind_losing_color
+                } else {
+                    component.config.ahead_gaining_color
+                }
+            }
+        }
+    }
+
     pub fn show(&self, ui: &mut egui::Ui, update_data: &UpdateData, active: bool, component: &SplitComponent) {
         // This may panic but uhhh that's how it's implemented i guess and it *shouldn't*
         let segment = update_data.run.segment(self.comparison_index);
@@ -83,8 +137,12 @@ impl SplitRenderer {
                         let t_secs = seg_time.map(|t| t.total_seconds()).unwrap_or(0.0);
                         if let Some(t) =  comparison_time.map(|t| t.total_seconds()) {
                             let delta = t_secs - t;
-                            ui.label(component.delta_formatter.format(TimeSpan::from_seconds(delta)).to_string());
-                            // TODO: Colors
+                            // Choose correct color, first checking if this is a gold.
+                            let color = self.get_delta_color(update_data, delta, component, best_time, t_secs);
+                            ui.colored_label(
+                                color,
+                                component.delta_formatter.format(TimeSpan::from_seconds(delta)).to_string(),
+                            );
                         } else {
                             ui.label("--");
                         }
@@ -98,7 +156,11 @@ impl SplitRenderer {
                     let delta = t_secs - t;
                     // Check if we need to show the split
                     if delta > 0.0 || best_time.filter(|t| t_secs > t.total_seconds()).is_some() {
-                        ui.label(component.delta_formatter.format(TimeSpan::from_seconds(delta)).to_string());
+                        let color = self.get_delta_color(update_data, delta, component, best_time, t_secs);
+                        ui.colored_label(
+                            color, 
+                            component.delta_formatter.format(TimeSpan::from_seconds(delta)).to_string(),
+                        );
                     }
                 } else {
                     // Skips drawing delta when we aren't comparing to a split.
@@ -306,6 +368,11 @@ pub struct SplitComponentConfig {
     pub shown_ahead_splits: usize,
     pub segment_time_accuracy: Accuracy,
     pub delta_accuracy: Accuracy,
+    pub best_segment_color: Color32,
+    pub behind_losing_color: Color32,
+    pub behind_gaining_color: Color32,
+    pub ahead_losing_color: Color32,
+    pub ahead_gaining_color: Color32,
 }
 
 impl Default for SplitComponentConfig {
@@ -317,6 +384,11 @@ impl Default for SplitComponentConfig {
             shown_ahead_splits: 1,
             segment_time_accuracy: Accuracy::Seconds,
             delta_accuracy: Accuracy::Hundredths,
+            best_segment_color: hex_color!("#ffb340"),
+            behind_losing_color: hex_color!("#690000"),
+            behind_gaining_color: hex_color!("#ff5454"),
+            ahead_losing_color: hex_color!("#80ff80"),
+            ahead_gaining_color: hex_color!("#00c900"),
         }
     }
 }

@@ -8,7 +8,7 @@ global-hotkey = "0.6.3"
 livesplit-core = "0.13.0"
 read-process-memory = "0.1.6"
 sysinfo = "0.33.1"
-egui = "0.31.1"
+egui = { version = "0.31.1", features = ["color-hex"] }
 egui-theme = "0.1.1"
 eframe = "0.31.1"
 egui-stylist = "0.1.1"

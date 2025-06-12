@@ -324,7 +324,9 @@ impl TimerComponent for SplitComponent {
         };
         let start_idx = end_idx.checked_sub(real_shown_splits_num - 1).unwrap_or(0);
 
-        Grid::new("SplitsGrid").show(ui, |ui| {
+        Grid::new("SplitsGrid")
+            .striped(self.config.striped)
+            .show(ui, |ui| {
             for split in &splits[start_idx..relative_current_idx] {
                 // TODO: Active vs inactive splits
                 split.show(ui, update_data, false, self);
@@ -373,6 +375,7 @@ pub struct SplitComponentConfig {
     pub behind_gaining_color: Color32,
     pub ahead_losing_color: Color32,
     pub ahead_gaining_color: Color32,
+    pub striped: bool,
 }
 
 impl Default for SplitComponentConfig {
@@ -389,6 +392,7 @@ impl Default for SplitComponentConfig {
             behind_gaining_color: hex_color!("#ff5454"),
             ahead_losing_color: hex_color!("#80ff80"),
             ahead_gaining_color: hex_color!("#00c900"),
+            striped: true,
         }
     }
 }

@@ -11,6 +11,7 @@ pub enum HotkeyAction {
     TogglePause,
     Reset,
     OpenSettings,
+    ToggleTimingMethod,
 }
 
 impl Display for HotkeyAction {
@@ -22,6 +23,9 @@ impl Display for HotkeyAction {
             HotkeyAction::TogglePause => f.write_str("Toggle Paused"),
             HotkeyAction::Reset => f.write_str("Reset"),
             HotkeyAction::OpenSettings => f.write_str("Open Settings Window"),
+            HotkeyAction::ToggleTimingMethod => f.write_str(
+                "Toggle Timing Method (Switches IGT/RTA)",
+            ),
         }
     }
 }

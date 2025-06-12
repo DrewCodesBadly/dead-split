@@ -8,6 +8,7 @@ use crate::{hotkey_manager::HotkeyAction, settings_menu::run_menu::RunMenuData, 
 mod profiles_menu;
 mod run_menu;
 mod hotkey_menu;
+mod autosplitter_menu;
 
 #[derive(Default)]
 pub struct HotkeyReloadData {
@@ -25,6 +26,8 @@ pub struct SettingsMenu {
     pub changed_run: Option<Run>,
     pub split_file_path: Option<PathBuf>,
     pub time_formatter: formatter::Regular,
+    pub autosplitter_path: Option<PathBuf>,
+    pub autosplitter_path_changed: bool,
 }
 
 impl SettingsMenu {
@@ -33,6 +36,7 @@ impl SettingsMenu {
             ui.collapsing("Profiles", |ui| self.show_profiles_menu(ui));
             ui.collapsing("Edit Run", |ui| self.show_run_menu(ui, update_data));
             ui.collapsing("Hotkeys", |ui| self.show_hotkey_menu(ui, update_data));
+            ui.collapsing("Autosplitters", |ui| self.show_autosplitters_menu(ui, update_data));
         });
     }
 

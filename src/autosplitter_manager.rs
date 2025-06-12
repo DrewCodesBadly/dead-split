@@ -1,6 +1,6 @@
-use std::{sync::Arc, thread::{self}, time::Instant};
+use std::{path::PathBuf, sync::Arc, thread::{self}, time::Instant};
 
-use livesplit_auto_splitting::{AutoSplitter, Runtime};
+use livesplit_auto_splitting::{settings, AutoSplitter, Runtime};
 use livesplit_core::SharedTimer;
 
 use crate::{timer_read, timer_write};
@@ -56,7 +56,7 @@ impl livesplit_auto_splitting::Timer for TimerBox {
         timer_write(&mut self.0).set_custom_variable(key, value);
     }
 
-    // TODO: Find way to print in godot from another thread without causing a crash.
+    // TODO: Logging system (or just like, use the asr debugger when debugging.)
     fn log_auto_splitter(&mut self, _: std::fmt::Arguments<'_>) {
     }
 
@@ -93,7 +93,7 @@ fn autosplitter_thread(auto_splitter: Arc<AutoSplitter<TimerBox>>) {
 }
     
 impl AutosplitterManager {
-    pub fn new(timer: SharedTimer, wasm_file_path: String) -> Result<Self, ()> {
+    pub fn new(timer: SharedTimer, wasm_file_path: &PathBuf) -> Result<Self, ()> {
         let module = std::fs::read(wasm_file_path).map_err(|_| ())?;
         let mut config = livesplit_auto_splitting::Config::default();
         config.optimize = true;
@@ -117,6 +117,18 @@ impl AutosplitterManager {
             _runtime: runtime,
             auto_splitter: auto_splitter_arc,
         })
+    }
+
+    pub fn settings_widgets(&self) -> Arc<Vec<settings::Widget>> {
+        self.auto_splitter.settings_widgets()
+    }
+
+    pub fn settings_map(&self) -> settings::Map {
+        self.auto_splitter.settings_map()
+    }
+
+    pub fn set_settings_map(&self, map: settings::Map) {
+        self.auto_splitter.set_settings_map(map);
     }
 }
 

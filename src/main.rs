@@ -2,8 +2,7 @@ use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
 use autosplitter_manager::AutosplitterManager;
 use eframe::{run_native, App, CreationContext, NativeOptions};
-use egui::{CentralPanel, ViewportBuilder, WindowLevel};
-use global_hotkey::GlobalHotKeyManager;
+use egui::{CentralPanel, Id, Vec2, ViewportBuilder, Window, WindowLevel};
 use hotkey_manager::HotkeyManager;
 use livesplit_core::{hotkey::Hook, Run, Segment, SharedTimer, Timer, TimerPhase};
 use read_process_memory::ProcessHandle;
@@ -26,6 +25,9 @@ struct DeadSplit {
 
     components: Vec<Box<dyn TimerComponent>>,
     settings_menu: SettingsMenu,
+
+    notification_text: String,
+    notification_active: f32,
 }
 
 impl DeadSplit {
@@ -51,11 +53,9 @@ impl DeadSplit {
                 Box::new(RunTimerComponent::new(RunTimerConfig::default()))
             ],
             settings_menu: SettingsMenu::new(),
+            notification_text: String::new(),
+            notification_active: 0.0,
         }
-    }
-
-    pub fn reload_profile(&mut self) {
-        todo!()
     }
 
     pub fn reload_components(&mut self) {
@@ -103,6 +103,7 @@ impl App for DeadSplit {
                 snapshot: binding.snapshot(),
                 run: binding.run(),
                 hotkey_manager: &self.hotkey_mgr,
+                autosplitter_manager: &self.autosplitter_manager,
             };
 
 
@@ -149,6 +150,20 @@ impl App for DeadSplit {
                     self.settings_menu.hotkey_reload_data = None;
                 }
 
+                // Also can reload autosplitters immediately so their settings show.
+                if self.settings_menu.autosplitter_path_changed {
+                    if let Some(p) = &self.settings_menu.autosplitter_path {
+                        self.autosplitter_manager = AutosplitterManager::new(self.timer.clone(), p).ok();
+                        if self.autosplitter_manager.is_none() {
+                            self.settings_menu.autosplitter_path = None;
+                            // TODO: Visibly show an error?
+                        }
+                    } else {
+                        self.autosplitter_manager = None;
+                    }
+                    self.settings_menu.autosplitter_path_changed = false;
+                }
+
                 // Check if we need to reload settings
                 if !self.settings_menu.shown {
                     if let Some(run) = &self.settings_menu.changed_run {
@@ -181,12 +196,35 @@ impl App for DeadSplit {
                     reload_components_flag = true;
                 },
                 hotkey_manager::HotkeyAction::OpenSettings => self.settings_menu.shown = true,
+                hotkey_manager::HotkeyAction::ToggleTimingMethod => {
+                    binding.toggle_timing_method();
+                    self.notification_text = match binding.current_timing_method() {
+                        livesplit_core::TimingMethod::RealTime => "Timing Method: Real Time".to_string(),
+                        livesplit_core::TimingMethod::GameTime => "Timing Method: Game Time".to_string(),
+                    };
+                    self.notification_active = 3.0;
+                }
             }
         }
 
         // Extra reloading - done after the timer binding is no longer needed.
         if reload_components_flag {
             self.reload_components();
+        }
+
+        // Notifications
+        if self.notification_active > 0.0 {
+            Window::new("notification")
+                .order(egui::Order::Foreground)
+                .resizable(false)
+                .interactable(false)
+                .fade_in(true)
+                .title_bar(false)
+                .anchor(egui::Align2::CENTER_CENTER, Vec2 { x: 0.0, y: 0.0 })
+                .show(ctx, |ui| {
+                    self.notification_active -= ui.input(|i| i.stable_dt);
+                    ui.label(&self.notification_text);
+                });
         }
 
 

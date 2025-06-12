@@ -118,7 +118,7 @@ impl SettingsMenu {
             });
 
             // Split editor
-            ui.checkbox(&mut self.run_menu_data.use_game_time_vals, "Show game times");
+            ui.checkbox(&mut self.run_menu_data.use_game_time_vals, "Show game time values");
             if (ui.button("Add New Segment")).clicked() {
                 run.push_segment(Segment::new("New Segment"));
                 self.run_menu_data.split_data.push(SplitMenuData {

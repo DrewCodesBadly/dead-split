@@ -20,3 +20,4 @@ serde = "1.0.219"
 # Git repository is used for livesplit-auto-splitting beacuse the crates.io package is dated
 livesplit-auto-splitting = { git = "https://github.com/LiveSplit/livesplit-core" }
 toml = "0.8.23"
+zip = "4.0.0"

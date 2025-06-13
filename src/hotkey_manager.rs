@@ -1,9 +1,17 @@
 use std::{collections::HashMap, fmt::Display, str::FromStr, sync::{Arc, RwLock}};
 use global_hotkey::{hotkey::HotKey, GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use livesplit_core::hotkey::{Hook, Hotkey};
+use serde::{Deserialize, Serialize};
 use strum::EnumIter;
 
-#[derive(PartialEq, Eq, Hash, Clone, Copy, EnumIter)]
+#[derive(Serialize, Deserialize)]
+pub struct HotkeyConfig {
+    pub x11_hotkeys: bool,
+    pub string_map: HashMap<HotkeyAction, String>,
+    pub key_map: HashMap<u32, HotkeyAction>, // Only used with X11
+}
+
+#[derive(PartialEq, Eq, Hash, Clone, Copy, EnumIter, Serialize, Deserialize)]
 pub enum HotkeyAction {
     StartSplit,
     Pause,
@@ -168,5 +176,13 @@ impl HotkeyManager {
 
     pub fn is_x11(&self) -> bool {
         return self.x11_manager.is_some();
+    }
+
+    pub fn get_hotkey_config(&self) -> HotkeyConfig {
+        HotkeyConfig {
+            x11_hotkeys: self.is_x11(),
+            key_map: self.key_map.clone(),
+            string_map: self.string_map.clone(),
+        }
     }
 }

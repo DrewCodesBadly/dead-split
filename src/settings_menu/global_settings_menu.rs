@@ -4,6 +4,8 @@ use crate::{settings_menu::{SettingsMenu, UpdateRequest}, timer_components::Upda
 
 impl SettingsMenu {
     pub fn show_global_settings_menu(&mut self, ui: &mut Ui, update_data: &UpdateData, configs: &mut ConfigReferences) {
-        ui.checkbox(&mut configs.global_config.autosave_splits, "Autosave splits on run reset");
+        if ui.checkbox(&mut configs.global_config.autosave_splits, "Autosave splits on run reset").changed() {
+            self.update_requests.push(UpdateRequest::SaveGlobalConfig);
+        }
     }
 }

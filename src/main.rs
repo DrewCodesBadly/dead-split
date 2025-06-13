@@ -1,9 +1,10 @@
-use std::{fs::{self, File}, io::{BufWriter, Write}, path::PathBuf, str::FromStr, sync::{RwLockReadGuard, RwLockWriteGuard}};
+use core::fmt;
+use std::{fs::{self, File}, io::{BufWriter, Cursor, Write}, path::PathBuf, str::FromStr, sync::{RwLockReadGuard, RwLockWriteGuard}};
 
 use autosplitter_manager::AutosplitterManager;
 use directories::ProjectDirs;
 use eframe::{run_native, App, NativeOptions};
-use egui::{CentralPanel, Vec2, ViewportBuilder, Window, WindowLevel};
+use egui::{ahash::HashMap, CentralPanel, Vec2, ViewportBuilder, Window, WindowLevel};
 use hotkey_manager::HotkeyManager;
 use livesplit_core::{hotkey::Hook, run::saver::livesplit::{self, IoWrite}, Run, Segment, SharedTimer, Timer, TimerPhase};
 use read_process_memory::ProcessHandle;
@@ -11,13 +12,23 @@ use serde::{Deserialize, Serialize};
 use settings_menu::SettingsMenu;
 use sysinfo::Pid;
 use timer_components::{split_component::{SplitComponent, SplitComponentConfig}, RunTimerComponent, TimerComponent, TitleComponent, UpdateData};
+use zip::{result::ZipError, write::SimpleFileOptions, ZipWriter};
 
-use crate::timer_components::{TimerComponentConfig, TimerComponentType, TitleComponentConfig};
+use crate::{hotkey_manager::HotkeyAction, timer_components::{TimerComponentConfig, TimerComponentType, TitleComponentConfig}};
 
 mod hotkey_manager;
 mod autosplitter_manager;
 mod timer_components;
 mod settings_menu;
+
+#[derive(Debug)]
+pub enum ProfileSaveError {
+    NoPath,
+    CannotCreateFile(std::io::Error),
+    ZipWriterError(ZipError),
+    TomlSerializeError(toml::ser::Error),
+    LivesplitSaveError(fmt::Error),
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 struct GlobalConfig {
@@ -30,6 +41,7 @@ struct GlobalConfig {
 struct TimerConfig {
     pub components: Vec<TimerComponentType>,
 }
+
 
 struct ConfigReferences<'a> {
     pub timer_config: &'a mut TimerConfig,
@@ -134,6 +146,38 @@ impl DeadSplit {
 
         self.components = new_comps;
     }
+
+    pub fn try_save_profile_zip(&self, timer: &Timer) -> Result<(), ProfileSaveError> {
+        let path = self.global_config.active_profile.as_ref()
+            .ok_or(ProfileSaveError::NoPath)?;
+        let file = File::create(path).map_err(|e| ProfileSaveError::CannotCreateFile(e))?;
+        let options = SimpleFileOptions::default();
+        let mut zip = ZipWriter::new(file);
+
+        zip.start_file("timer_config.toml", options)
+            .map_err(|e| ProfileSaveError::ZipWriterError(e))?;
+        zip.write(toml::to_string(&self.timer_config)
+            .map_err(|e| ProfileSaveError::TomlSerializeError(e))?
+            .as_bytes())
+            .map_err(|e| ProfileSaveError::ZipWriterError(ZipError::Io(e)))?;
+
+        zip.start_file("splits.lss", options)
+            .map_err(|e| ProfileSaveError::ZipWriterError(e))?;
+        livesplit::save_run(timer.run(), IoWrite(&mut zip))
+            .map_err(|e| ProfileSaveError::LivesplitSaveError(e))?;
+
+        let hotkey_cfg = self.hotkey_mgr.get_hotkey_config();
+        zip.start_file("hotkey.toml", options)
+            .map_err(|e| ProfileSaveError::ZipWriterError(e))?;
+        zip.write(toml::to_string(&hotkey_cfg)
+            .map_err(|e| ProfileSaveError::TomlSerializeError(e))?
+            .as_bytes())
+            .map_err(|e| ProfileSaveError::ZipWriterError(ZipError::Io(e)))?;
+
+        zip.finish().map_err(|e| ProfileSaveError::ZipWriterError(e))?;
+
+        Ok(())
+    }
 }
 
 // Wrapper for sysinfo::Process and read_process_memory::ProcessHandle since we really need both or none
@@ -141,8 +185,6 @@ pub struct ProcessData {
     pub handle: ProcessHandle,
     pub pid: Pid,
 }
-
-
 
 pub fn timer_read(t: &SharedTimer) -> RwLockReadGuard<'_, Timer> {
     t.read().unwrap()
@@ -164,7 +206,6 @@ impl App for DeadSplit {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let mut reload_components_flag = false;
         let mut save_global_cfg_flag = false;
-        let mut save_splits_flag = false;
         // Scope during which the timer binding lives
         // This can block attempts to change other stuff, like modifying the timer setup.
         {
@@ -237,6 +278,7 @@ impl App for DeadSplit {
                                             }
                         settings_menu::UpdateRequest::LoadProfile(path_buf) => {
                             self.global_config.active_profile = Some(path_buf);
+                            save_global_cfg_flag = true;
                             // TODO
                         }
                         settings_menu::UpdateRequest::RemoveKnownDirectory(idx) => {
@@ -249,11 +291,8 @@ impl App for DeadSplit {
                                 save_global_cfg_flag = true;
                             }
                         }
-                        settings_menu::UpdateRequest::SaveSplits => {
-                            save_splits_flag = true;
-                        }
-                        settings_menu::UpdateRequest::ReloadComponents => {
-                            reload_components_flag = true;
+                        settings_menu::UpdateRequest::SaveGlobalConfig => {
+                            save_global_cfg_flag = true;
                         }
                         settings_menu::UpdateRequest::RemoveComponent(idx) => {
                             let _ = self.timer_config.components.remove(idx);
@@ -270,7 +309,9 @@ impl App for DeadSplit {
                         }
                         settings_menu::UpdateRequest::RemoveSegment(idx) => {
                             if let Some(run) = &mut self.settings_menu.changed_run {
-                                let _ = run.segments_mut().remove(idx);
+                                if run.len() > 1 {
+                                    let _ = run.segments_mut().remove(idx);
+                                }
                             }
                         }
                         settings_menu::UpdateRequest::MoveSegmentDown(idx) => {
@@ -292,6 +333,8 @@ impl App for DeadSplit {
 
                 // Reloads the timer once the settings menu closes.
                 if !self.settings_menu.shown {
+                    // println!("{:?}", self.try_save_profile_zip(&binding));
+                    let _ = self.try_save_profile_zip(&binding);
                     reload_components_flag = true;
                 }
             }
@@ -317,7 +360,7 @@ impl App for DeadSplit {
                     binding.reset(true);
                     reload_components_flag = true;
                     if self.global_config.autosave_splits {
-                        save_splits_flag = true;
+                        let _ = self.try_save_profile_zip(&binding);
                     }
                 },
                 hotkey_manager::HotkeyAction::OpenSettings => self.settings_menu.shown = true,
@@ -347,20 +390,6 @@ impl App for DeadSplit {
                     let file = File::create(path);
                    let _ = file.inspect(|mut f| { let _ = f.write_all(data.as_bytes()); });
                 }
-            }
-        }
-
-        if save_splits_flag {
-            let mut binding = timer_write(&self.timer);
-            if let Some(run) = &self.settings_menu.changed_run {
-                let _ = binding.replace_run(run.clone(), true);
-                self.settings_menu.changed_run = None;
-            }
-
-            if let Some(p) = &self.settings_menu.split_file_path {
-                let _ = File::create(p).inspect(|f| {
-                    let _ = livesplit::save_run(binding.run(), IoWrite(BufWriter::new(f)));
-                });
             }
         }
 

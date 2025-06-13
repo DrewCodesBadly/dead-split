@@ -20,6 +20,10 @@ impl SettingsMenu {
                 }
             }
             if ui.button("Save to new file...").clicked() {
+                configs.global_config.active_profile = FileDialog::new()
+                    .add_filter("ZIP Profiles", &["zip"])
+                    .save_file();
+                self.update_requests.push(UpdateRequest::SaveGlobalConfig);
             }
         });
 

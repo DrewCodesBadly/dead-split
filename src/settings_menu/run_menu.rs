@@ -32,47 +32,21 @@ impl SettingsMenu {
     pub fn show_run_menu(&mut self, ui: &mut egui::Ui, update_data: &UpdateData) {
         // File options.
         ui.horizontal(|ui| {
-            let path_string = match &self.split_file_path {
-                Some(p) => p.to_str().unwrap_or("None"),
-                None => "None",
-            };
-            ui.label("Active Splits File: ".to_owned() + path_string);
-            if ui.button("Open file...").clicked() {
-                // TODO: Handle other file types correctly, prompting for a new path
-                // if a non-lss file type is used.
-                self.split_file_path = FileDialog::new()
-                    .add_filter("Split files", &["lss"])
-                    .pick_file();
-                if let Some(p) = &self.split_file_path {
-                    match try_load_run(p) {
+            if ui.button("Import splits from file...").clicked() {
+                if let Some(p) = FileDialog::new()
+                    .pick_file() {
+                    match try_load_run(&p) {
                         Ok(run) => self.changed_run = Some(run),
-                        Err(_) => {
-                            self.changed_run = Some(crate::get_default_run());
-                            self.run_menu_data.generated = false;
-                            self.split_file_path = None;
-                        }
+                        Err(_) => {},
                     }
-                } else {
-                    self.split_file_path = None;
-                    self.run_menu_data.generated = false;
-                    self.changed_run = Some(crate::get_default_run());
-                }
+                } 
             }
+            // TODO: Add confirmation
             if ui.button("Create new splits").clicked() {
-                self.split_file_path = None;
                 self.changed_run = Some(crate::get_default_run());
                 self.run_menu_data.generated = false;
             }
         });
-
-        if ui.button("Save splits to new file...").clicked() {
-            if let Some(p) = FileDialog::new()
-                .add_filter("Split files", &["lss"])
-                .save_file() {
-                self.split_file_path = Some(p);
-                self.update_requests.push(UpdateRequest::SaveSplits);
-            }
-        }
         
         if let Some(run) = &mut self.changed_run {
             if !self.run_menu_data.generated {
@@ -194,18 +168,18 @@ impl SettingsMenu {
                     // These need to be delayed, so we're using UpdateRequest
                     if ui.button("Move Segment Up").clicked() {
                         self.update_requests.push(UpdateRequest::MoveSegmentUp(i));
+                        self.run_menu_data.generated = false;
                     }
                     if ui.button("Move Segment Down").clicked() {
                         self.update_requests.push(UpdateRequest::MoveSegmentDown(i));
+                        self.run_menu_data.generated = false;
                     }
                     if ui.button("Remove Segment").clicked() {
                         self.update_requests.push(UpdateRequest::RemoveSegment(i));
+                        self.run_menu_data.generated = false;
                     }
                 }
                 ui.separator();
-            }
-            if ui.button("Save changes").clicked() {
-                self.update_requests.push(UpdateRequest::SaveSplits);
             }
         } else {
             if ui.button("Edit splits data...").clicked() {

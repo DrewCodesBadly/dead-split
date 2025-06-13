@@ -20,14 +20,13 @@ pub enum UpdateRequest {
     LoadProfile(PathBuf),
     RemoveKnownDirectory(usize),
     AddKnownDirectory(PathBuf),
-    SaveSplits,
-    ReloadComponents,
     RemoveComponent(usize),
     MoveComponentUp(usize),
     MoveComponentDown(usize),
     RemoveSegment(usize),
     MoveSegmentUp(usize),
     MoveSegmentDown(usize),
+    SaveGlobalConfig,
 }
 
 #[derive(Default)]
@@ -36,7 +35,6 @@ pub struct SettingsMenu {
     pub shown: bool,
     pub action_awaiting_bind: Option<HotkeyAction>,
     pub changed_run: Option<Run>,
-    pub split_file_path: Option<PathBuf>,
     pub time_formatter: formatter::Regular,
     pub autosplitter_path: Option<PathBuf>,
 
@@ -46,11 +44,11 @@ pub struct SettingsMenu {
 impl SettingsMenu {
     pub fn show(&mut self, ctx: &egui::Context, ui: &mut egui::Ui, update_data: &UpdateData, configs: &mut ConfigReferences) {
         ScrollArea::both().show(ui, |ui| {
+            ui.collapsing("Global Settings", |ui| self.show_global_settings_menu(ui, update_data, configs));
             ui.collapsing("Profiles", |ui| self.show_profiles_menu(ui, configs));
             ui.collapsing("Edit Run", |ui| self.show_run_menu(ui, update_data));
             ui.collapsing("Hotkeys", |ui| self.show_hotkey_menu(ui, update_data));
             ui.collapsing("Autosplitters", |ui| self.show_autosplitters_menu(ui, update_data));
-            ui.collapsing("Global Settings", |ui| self.show_global_settings_menu(ui, update_data, configs));
             ui.collapsing("Timer Components", |ui| self.show_timer_components_menu(ui, configs));
         });
     }

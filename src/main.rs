@@ -1,5 +1,5 @@
 use core::fmt;
-use std::{fs::{self, File}, io::{BufWriter, Cursor, Write}, path::PathBuf, str::FromStr, sync::{RwLockReadGuard, RwLockWriteGuard}};
+use std::{fs::{self, File}, io::{BufWriter, Cursor, Read, Write}, path::PathBuf, str::FromStr, sync::{RwLockReadGuard, RwLockWriteGuard}};
 
 use autosplitter_manager::AutosplitterManager;
 use directories::ProjectDirs;
@@ -14,7 +14,7 @@ use sysinfo::Pid;
 use timer_components::{split_component::{SplitComponent, SplitComponentConfig}, RunTimerComponent, TimerComponent, TitleComponent, UpdateData};
 use zip::{result::ZipError, write::SimpleFileOptions, ZipWriter};
 
-use crate::{hotkey_manager::HotkeyAction, timer_components::{TimerComponentConfig, TimerComponentType, TitleComponentConfig}};
+use crate::{autosplitter_manager::AutosplitterConfig, hotkey_manager::HotkeyAction, timer_components::{TimerComponentConfig, TimerComponentType, TitleComponentConfig}};
 
 mod hotkey_manager;
 mod autosplitter_manager;
@@ -46,6 +46,7 @@ struct TimerConfig {
 struct ConfigReferences<'a> {
     pub timer_config: &'a mut TimerConfig,
     pub global_config: &'a mut GlobalConfig,
+    pub autosplitter_config: &'a mut AutosplitterConfig,
 }
 
 impl Default for GlobalConfig {
@@ -84,6 +85,7 @@ struct DeadSplit {
 
     global_config: GlobalConfig,
     timer_config: TimerConfig,
+    autosplitter_config: AutosplitterConfig,
 }
 
 impl Default for DeadSplit {
@@ -120,6 +122,7 @@ impl Default for DeadSplit {
             notification_active: 0.0,
             global_config: GlobalConfig::default(),
             timer_config,
+            autosplitter_config: AutosplitterConfig::default(),
         } 
     }
 }
@@ -230,11 +233,13 @@ impl App for DeadSplit {
                 }
             });
 
-            let mut configs = ConfigReferences {
-                global_config: &mut self.global_config,
-                timer_config: &mut self.timer_config,
-            };
             if self.settings_menu.shown {
+                let mut configs = ConfigReferences {
+                    global_config: &mut self.global_config,
+                    timer_config: &mut self.timer_config,
+                    autosplitter_config: &mut self.autosplitter_config,
+                };
+
                 ctx.show_viewport_immediate(
                     egui::ViewportId::from_hash_of("DeadSplit_settings"),
                     egui::ViewportBuilder::default()
@@ -264,17 +269,6 @@ impl App for DeadSplit {
                                             }
                         settings_menu::UpdateRequest::NewHotkeyBind(string, hotkey_action) => {
                                                 let _ = self.hotkey_mgr.bind_key(string, hotkey_action);
-                                            }
-                        settings_menu::UpdateRequest::ReloadAutosplitter => {
-                                                if let Some(p) = &self.settings_menu.autosplitter_path {
-                                                    self.autosplitter_manager = AutosplitterManager::new(self.timer.clone(), p).ok();
-                                                    if self.autosplitter_manager.is_none() {
-                                                        self.settings_menu.autosplitter_path = None;
-                                                        // TODO: Visibly show an error?
-                                                    }
-                                                } else {
-                                                    self.autosplitter_manager = None;
-                                                }
                                             }
                         settings_menu::UpdateRequest::LoadProfile(path_buf) => {
                             self.global_config.active_profile = Some(path_buf);
@@ -328,11 +322,54 @@ impl App for DeadSplit {
                                 }
                             }
                         }
+                        settings_menu::UpdateRequest::CheckGameForAutosplitter(name) =>  {
+                            if let Some(dirs) = ProjectDirs::from("com", "DrewCodesBadly", "DeadSplit") {
+                                let game_name = to_snake_case(&name);
+                                let mut path = dirs.preference_dir().to_path_buf();
+                                path.push(game_name + ".wasm");
+                                if path.exists() {
+                                    self.settings_menu.autosplitter_path = Some(path);
+                                }
+                            }
+                        }
+                        settings_menu::UpdateRequest::TryImportAutosplitter(path) => {
+                            let mgr = AutosplitterManager::new(self.timer.clone(), &path).ok();
+                            // If it loaded successfully, save it as a known autosplitter.
+                            if mgr.is_some() {
+                                let game_name = to_snake_case(binding.run().game_name());
+                                if let Some(dirs) = ProjectDirs::from("com", "DrewCodesBadly", "DeadSplit") {
+                                    let mut new_path = dirs.preference_dir().to_path_buf();
+                                    new_path.push(game_name + ".wasm");
+                                    let _ = fs::copy(path, &new_path);
+                                    self.settings_menu.autosplitter_path = Some(new_path);
+                                }
+
+                                if self.autosplitter_config.enabled {
+                                    self.autosplitter_manager = mgr;
+                                }
+                            }
+                        }
+                        settings_menu::UpdateRequest::ToggleAutosplitterEnabled(enabled) => {
+                            if enabled {
+                                if let Some(p) = &self.settings_menu.autosplitter_path {
+                                    self.autosplitter_manager = AutosplitterManager::new(
+                                        self.timer.clone(),
+                                        p
+                                    ).ok();
+                                }
+                            } else {
+                                self.autosplitter_manager = None;
+                            }
+                        }
                     }
                 }
 
                 // Reloads the timer once the settings menu closes.
                 if !self.settings_menu.shown {
+                    if let Some(run) = &self.settings_menu.changed_run {
+                        let _ = binding.replace_run(run.clone(), true);
+                        self.settings_menu.changed_run = None;
+                    }
                     // println!("{:?}", self.try_save_profile_zip(&binding));
                     let _ = self.try_save_profile_zip(&binding);
                     reload_components_flag = true;
@@ -461,4 +498,8 @@ fn get_project_save_dir() -> Option<PathBuf> {
     } else {
         None
     }
+}
+
+fn to_snake_case(s: &str) -> String {
+    s.to_lowercase().replace(" ", "_")
 }

@@ -16,7 +16,6 @@ pub enum UpdateRequest {
     ReloadHotkeyManager(bool),
     ClearHotkey(HotkeyAction),
     NewHotkeyBind(String, HotkeyAction),
-    ReloadAutosplitter,
     LoadProfile(PathBuf),
     RemoveKnownDirectory(usize),
     AddKnownDirectory(PathBuf),
@@ -27,6 +26,9 @@ pub enum UpdateRequest {
     MoveSegmentUp(usize),
     MoveSegmentDown(usize),
     SaveGlobalConfig,
+    CheckGameForAutosplitter(String),
+    TryImportAutosplitter(PathBuf),
+    ToggleAutosplitterEnabled(bool),
 }
 
 #[derive(Default)]
@@ -48,7 +50,7 @@ impl SettingsMenu {
             ui.collapsing("Profiles", |ui| self.show_profiles_menu(ui, configs));
             ui.collapsing("Edit Run", |ui| self.show_run_menu(ui, update_data));
             ui.collapsing("Hotkeys", |ui| self.show_hotkey_menu(ui, update_data));
-            ui.collapsing("Autosplitters", |ui| self.show_autosplitters_menu(ui, update_data));
+            ui.collapsing("Autosplitters", |ui| self.show_autosplitters_menu(ui, update_data, configs));
             ui.collapsing("Timer Components", |ui| self.show_timer_components_menu(ui, configs));
         });
     }

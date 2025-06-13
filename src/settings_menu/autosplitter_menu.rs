@@ -2,35 +2,34 @@ use egui::Ui;
 use livesplit_auto_splitting::settings::Value;
 use rfd::FileDialog;
 
-use crate::{settings_menu::{SettingsMenu, UpdateRequest}, timer_components::UpdateData};
+use crate::{settings_menu::{SettingsMenu, UpdateRequest}, timer_components::UpdateData, ConfigReferences};
 
 impl SettingsMenu {
-    pub fn show_autosplitters_menu(&mut self, ui: &mut Ui, update_data: &UpdateData) {
-        // File options.
+    pub fn show_autosplitters_menu(&mut self, ui: &mut Ui, update_data: &UpdateData, configs: &mut ConfigReferences) {
         ui.horizontal(|ui| {
-            let path_string = match &self.autosplitter_path {
-                Some(p) => p.to_str().unwrap_or("None"),
-                None => "None",
+            match self.autosplitter_path {
+                Some(_) => ui.label("Found an autosplitter for this game."),
+                None => ui.label("No autosplitter found for this game."),
             };
-            ui.label("Active autosplitter: ".to_owned() + path_string);
-            if ui.button("Open file...").clicked() {
-                self.autosplitter_path = FileDialog::new()
-                    // TODO: add filter for every supported file type
-                    // would have to check which types are supported.
+            if ui.button("Import an autosplitter for this game...").clicked() {
+                if let Some(p) = FileDialog::new()
                     .add_filter("Autosplitters", &["wasm"])
-                    .pick_file();
-                self.update_requests.push(UpdateRequest::ReloadAutosplitter);
-            }
-            if ui.button("Clear autosplitter").clicked() {
-                self.autosplitter_path = None;
-                self.update_requests.push(UpdateRequest::ReloadAutosplitter);
+                    .pick_file() {
+                    self.update_requests.push(UpdateRequest::TryImportAutosplitter(p));
+                }
             }
         });
+
+        if ui.checkbox(&mut configs.autosplitter_config.enabled, "Enabled").changed() {
+            self.update_requests.push(UpdateRequest::ToggleAutosplitterEnabled(configs.autosplitter_config.enabled));
+        }
 
         if let Some(manager) = update_data.autosplitter_manager {
             let mut map = manager.settings_map();
 
             // Show settings menu.
+            ui.label("Autosplitter loaded successfully, its settings are below.");
+            ui.separator();
             for widget in manager.settings_widgets().iter() {
                 match widget.kind {
                     livesplit_auto_splitting::settings::WidgetKind::Bool { default_value } => {

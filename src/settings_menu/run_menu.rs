@@ -30,13 +30,19 @@ pub struct RunMenuData {
 
 impl SettingsMenu {
     pub fn show_run_menu(&mut self, ui: &mut egui::Ui, update_data: &UpdateData) {
+        ui.label("Any changes to the current run are applied once the settings menu is closed.");
+
         // File options.
         ui.horizontal(|ui| {
             if ui.button("Import splits from file...").clicked() {
                 if let Some(p) = FileDialog::new()
                     .pick_file() {
                     match try_load_run(&p) {
-                        Ok(run) => self.changed_run = Some(run),
+                        Ok(run) => {
+                            self.update_requests.push(
+                                UpdateRequest::CheckGameForAutosplitter(run.game_name().to_owned()));
+                            self.changed_run = Some(run);
+                        }
                         Err(_) => {},
                     }
                 } 
@@ -78,7 +84,9 @@ impl SettingsMenu {
             ui.horizontal(|ui| {
                 ui.label("Game name: ");
                 if ui.text_edit_singleline(&mut self.run_menu_data.game_name_str).changed() {
-                    run.set_game_name(self.run_menu_data.game_name_str.to_owned());
+                    let name = self.run_menu_data.game_name_str.to_owned();
+                    self.update_requests.push(UpdateRequest::CheckGameForAutosplitter(name.clone()));
+                    run.set_game_name(name);
                 }
             });
             ui.horizontal(|ui| {

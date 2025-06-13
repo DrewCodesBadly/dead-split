@@ -117,7 +117,7 @@ impl HotkeyManager {
     }
 
     pub fn remove_key(&mut self, action: HotkeyAction) -> Result<(), ()> {
-        let key_string = match self.string_map.get(&action) {
+        let key_string = match self.string_map.remove(&action) {
             Some(s) => s,
             None => return Err(()),
         };

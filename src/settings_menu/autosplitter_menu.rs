@@ -2,7 +2,7 @@ use egui::Ui;
 use livesplit_auto_splitting::settings::Value;
 use rfd::FileDialog;
 
-use crate::{settings_menu::SettingsMenu, timer_components::UpdateData};
+use crate::{settings_menu::{SettingsMenu, UpdateRequest}, timer_components::UpdateData};
 
 impl SettingsMenu {
     pub fn show_autosplitters_menu(&mut self, ui: &mut Ui, update_data: &UpdateData) {
@@ -19,11 +19,11 @@ impl SettingsMenu {
                     // would have to check which types are supported.
                     .add_filter("Autosplitters", &["wasm"])
                     .pick_file();
-                self.autosplitter_path_changed = true;
+                self.update_requests.push(UpdateRequest::ReloadAutosplitter);
             }
             if ui.button("Clear autosplitter").clicked() {
                 self.autosplitter_path = None;
-                self.autosplitter_path_changed = true;
+                self.update_requests.push(UpdateRequest::ReloadAutosplitter);
             }
         });
 

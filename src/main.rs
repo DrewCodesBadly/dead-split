@@ -1,13 +1,15 @@
-use std::sync::{RwLockReadGuard, RwLockWriteGuard};
+use std::{fs::{self, File}, io::Write, path::PathBuf, str::FromStr, sync::{RwLockReadGuard, RwLockWriteGuard}};
 
 use autosplitter_manager::AutosplitterManager;
+use directories::ProjectDirs;
 use eframe::{run_native, App, CreationContext, NativeOptions};
-use egui::{CentralPanel, Id, Vec2, ViewportBuilder, Window, WindowLevel};
+use egui::{CentralPanel, Vec2, ViewportBuilder, Window, WindowLevel};
 use hotkey_manager::HotkeyManager;
 use livesplit_core::{hotkey::Hook, Run, Segment, SharedTimer, Timer, TimerPhase};
 use read_process_memory::ProcessHandle;
+use serde::{Deserialize, Serialize};
 use settings_menu::SettingsMenu;
-use sysinfo::{Pid, ProcessRefreshKind, RefreshKind, System};
+use sysinfo::Pid;
 use timer_components::{split_component::{SplitComponent, SplitComponentConfig}, RunTimerComponent, RunTimerConfig, TimerComponent, TitleComponent, UpdateData};
 
 mod hotkey_manager;
@@ -15,12 +17,16 @@ mod autosplitter_manager;
 mod timer_components;
 mod settings_menu;
 
+#[derive(Serialize, Deserialize, Default, Debug)]
+struct DirectoryConfig {
+    pub active_profile: Option<PathBuf>,
+    pub known_directories: Vec<PathBuf>,
+}
+
 struct DeadSplit {
     // TODO: avoid unwraps?
     timer: SharedTimer,
     hotkey_mgr: HotkeyManager,
-    system: System,
-    attached_process: Option<ProcessData>,
     autosplitter_manager: Option<AutosplitterManager>,
 
     components: Vec<Box<dyn TimerComponent>>,
@@ -28,6 +34,8 @@ struct DeadSplit {
 
     notification_text: String,
     notification_active: f32,
+
+    directory_config: DirectoryConfig,
 }
 
 impl DeadSplit {
@@ -40,10 +48,6 @@ impl DeadSplit {
         Self {
             timer: timer,
             hotkey_mgr: HotkeyManager::new_wayland(Hook::new().expect("Failed to create hotkey hook")),
-            system: System::new_with_specifics(RefreshKind::nothing().with_processes(
-                ProcessRefreshKind::nothing().with_exe(sysinfo::UpdateKind::OnlyIfNotSet),
-            )),
-            attached_process: None,
             autosplitter_manager: None,
             // TODO: Load these instead of hardcoding them
             // components: Vec::new(),
@@ -55,6 +59,7 @@ impl DeadSplit {
             settings_menu: SettingsMenu::new(),
             notification_text: String::new(),
             notification_active: 0.0,
+            directory_config: DirectoryConfig::default(),
         }
     }
 
@@ -65,6 +70,10 @@ impl DeadSplit {
         self.components = vec![
             Box::new(title_comp), Box::new(split_comp), Box::new(timer_comp),
         ];
+    }
+
+    pub fn set_directory_config(&mut self, cfg: DirectoryConfig) {
+        self.directory_config = cfg;
     }
 }
 
@@ -95,6 +104,7 @@ fn get_default_run() -> Run {
 impl App for DeadSplit {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let mut reload_components_flag = false;
+        let mut save_dirs_flag = false;
         // Scope during which the timer binding lives
         // This can block attempts to change other stuff, like modifying the timer setup.
         {
@@ -107,6 +117,7 @@ impl App for DeadSplit {
                 run: binding.run(),
                 hotkey_manager: &self.hotkey_mgr,
                 autosplitter_manager: &self.autosplitter_manager,
+                directory_config: &self.directory_config,
             };
 
             CentralPanel::default().show(ctx, |ui| {
@@ -137,33 +148,45 @@ impl App for DeadSplit {
                     },
                 );
 
-                // We can reload hotkey data immediately, this makes rebinding work correctly.
-                if let Some(data) = &self.settings_menu.hotkey_reload_data {
-                    self.hotkey_mgr = self.hotkey_mgr.new_with_type(data.x11_hotkeys);
-                    self.hotkey_mgr.setup_old_keys();
-
-                    if let Some(bind) = &data.new_bind {
-                        let _ = self.hotkey_mgr.bind_key(bind.0.clone(), bind.1);
-                    }
-                    if let Some(act) = data.clear {
-                        let _ = self.hotkey_mgr.remove_key(act);
-                    }
-
-                    self.settings_menu.hotkey_reload_data = None;
-                }
-
-                // Also can reload autosplitters immediately so their settings show.
-                if self.settings_menu.autosplitter_path_changed {
-                    if let Some(p) = &self.settings_menu.autosplitter_path {
-                        self.autosplitter_manager = AutosplitterManager::new(self.timer.clone(), p).ok();
-                        if self.autosplitter_manager.is_none() {
-                            self.settings_menu.autosplitter_path = None;
-                            // TODO: Visibly show an error?
+                // Read any changes that were made and need to be fixed here.
+                for request in self.settings_menu.update_requests.drain(0..) {
+                    match request {
+                        settings_menu::UpdateRequest::ReloadHotkeyManager(x11_hotkeys) => {
+                                                self.hotkey_mgr = self.hotkey_mgr.new_with_type(x11_hotkeys);
+                                                self.hotkey_mgr.setup_old_keys();
+                                            }
+                        settings_menu::UpdateRequest::ClearHotkey(hotkey_action) => {
+                                                let _ = self.hotkey_mgr.remove_key(hotkey_action);
+                                            }
+                        settings_menu::UpdateRequest::NewHotkeyBind(string, hotkey_action) => {
+                                                let _ = self.hotkey_mgr.bind_key(string, hotkey_action);
+                                            }
+                        settings_menu::UpdateRequest::ReloadAutosplitter => {
+                                                if let Some(p) = &self.settings_menu.autosplitter_path {
+                                                    self.autosplitter_manager = AutosplitterManager::new(self.timer.clone(), p).ok();
+                                                    if self.autosplitter_manager.is_none() {
+                                                        self.settings_menu.autosplitter_path = None;
+                                                        // TODO: Visibly show an error?
+                                                    }
+                                                } else {
+                                                    self.autosplitter_manager = None;
+                                                }
+                                            }
+                        settings_menu::UpdateRequest::LoadProfile(path_buf) => {
+                            self.directory_config.active_profile = Some(path_buf);
+                            // TODO
                         }
-                    } else {
-                        self.autosplitter_manager = None;
+                        settings_menu::UpdateRequest::RemoveKnownDirectory(idx) => {
+                            self.directory_config.known_directories.remove(idx);
+                            save_dirs_flag = true;
+                        }
+                        settings_menu::UpdateRequest::AddKnownDirectory(path_buf) => {
+                            if !self.directory_config.known_directories.contains(&path_buf) {
+                                self.directory_config.known_directories.push(path_buf);
+                                save_dirs_flag = true;
+                            }
+                        }
                     }
-                    self.settings_menu.autosplitter_path_changed = false;
                 }
 
                 // Check if we need to reload settings
@@ -171,8 +194,8 @@ impl App for DeadSplit {
                     if let Some(run) = &self.settings_menu.changed_run {
                         let _ = binding.replace_run(run.clone(), true);
                         self.settings_menu.changed_run = None;
-                        reload_components_flag = true;
                     }
+                    reload_components_flag = true;
                 }
             }
         }
@@ -214,6 +237,21 @@ impl App for DeadSplit {
             self.reload_components();
         }
 
+        // kinda jank error ignoring.
+        if save_dirs_flag {
+            if let Ok(data) = toml::to_string(&self.directory_config) {
+                if let Some(path) = get_project_save_dir() {
+                    if !path.exists() {
+                        let _ = fs::create_dir_all(path.parent().unwrap());
+                    }
+                    let file = File::create(path);
+                   let _ = file.inspect(|mut f| { let _ = f.write_all(data.as_bytes()); });
+                }
+            }
+        }
+
+        // Save needed resources to file.
+
         // Notifications
         if self.notification_active > 0.0 {
             Window::new("notification")
@@ -237,6 +275,19 @@ impl App for DeadSplit {
 }
 
 fn main() {
+    // Detect saved data.
+    let dirs_cfg: DirectoryConfig = {
+        if let Some(path) = get_project_save_dir() {
+            if let Ok(s) = fs::read_to_string(path) {
+                toml::from_str(&s).unwrap_or(DirectoryConfig::default())
+            } else {
+                DirectoryConfig::default()
+            }
+        } else {
+            DirectoryConfig::default()
+        }
+    };
+    
     // TODO: Different types of windows
     let window_options = NativeOptions {
         viewport: ViewportBuilder {
@@ -251,7 +302,20 @@ fn main() {
         "DeadSplit", 
         window_options, 
         Box::new(|cc| {
-            Ok(Box::new(DeadSplit::new(cc)))
+            let mut app = DeadSplit::new(cc);
+            app.set_directory_config(dirs_cfg);
+            Ok(Box::new(app))
         }),
     ).expect("failed to open window");
+}
+
+fn get_project_save_dir() -> Option<PathBuf> {
+    let project_dirs = ProjectDirs::from("com", "DrewCodesBadly", "DeadSplit");
+    if let Some(dirs) = project_dirs {
+        let mut path = dirs.preference_dir().to_path_buf();
+        path.push("paths.toml");
+        Some(path)
+    } else {
+        None
+    }
 }

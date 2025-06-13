@@ -1,7 +1,7 @@
 use egui::Button;
 use strum::IntoEnumIterator;
 
-use crate::{hotkey_manager::HotkeyAction, settings_menu::HotkeyReloadData, timer_components::UpdateData};
+use crate::{hotkey_manager::HotkeyAction, settings_menu::UpdateRequest, timer_components::UpdateData};
 
 use super::SettingsMenu;
 
@@ -10,15 +10,7 @@ impl SettingsMenu {
         // Toggle to switch between wayland/x11 hotkeys (using livesplit-core or tauri)
         let mut x11_compat = update_data.hotkey_manager.is_x11();
         if ui.checkbox(&mut x11_compat, "Use X11 Compatible Hotkeys").changed() {
-            if let Some(data) = &mut self.hotkey_reload_data {
-                data.x11_hotkeys = x11_compat;
-            } else {
-                self.hotkey_reload_data = Some(HotkeyReloadData {
-                    x11_hotkeys: x11_compat,
-                    clear: None,
-                    new_bind: None,
-                });
-            } 
+            self.update_requests.push(UpdateRequest::ReloadHotkeyManager(x11_compat));
         }
 
         for val in HotkeyAction::iter() {
@@ -61,19 +53,16 @@ impl SettingsMenu {
 
                         return None;
                     }) {
-                        if let Some(data) = &mut self.hotkey_reload_data {
-                            data.new_bind = Some((key_str, val));
-                        } else {
-                            self.hotkey_reload_data = Some(HotkeyReloadData {
-                                x11_hotkeys: x11_compat,
-                                clear: None,
-                                new_bind: Some((key_str, val)),
-                            });
-                        } 
+                        self.update_requests.push(UpdateRequest::NewHotkeyBind(key_str, val));
                         self.action_awaiting_bind = None;
                     }
-                } else if ui.button("Rebind").clicked() {
-                    self.action_awaiting_bind = Some(val);
+                } else { 
+                    if ui.button("Rebind").clicked() {
+                        self.action_awaiting_bind = Some(val);
+                    }
+                    if ui.button("Clear Hotkey").clicked() {
+                        self.update_requests.push(UpdateRequest::ClearHotkey(val));
+                    }
                 }
             });
         }

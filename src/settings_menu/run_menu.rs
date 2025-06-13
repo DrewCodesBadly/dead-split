@@ -47,17 +47,20 @@ impl SettingsMenu {
                         Ok(run) => self.changed_run = Some(run),
                         Err(_) => {
                             self.changed_run = Some(crate::get_default_run());
+                            self.run_menu_data.generated = false;
                             self.split_file_path = None;
                         }
                     }
                 } else {
                     self.split_file_path = None;
+                    self.run_menu_data.generated = false;
                     self.changed_run = Some(crate::get_default_run());
                 }
             }
             if ui.button("Create new splits").clicked() {
                 self.split_file_path = None;
                 self.changed_run = Some(crate::get_default_run());
+                self.run_menu_data.generated = false;
             }
         });
 

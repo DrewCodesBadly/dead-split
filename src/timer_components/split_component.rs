@@ -2,6 +2,7 @@ use std::{cmp::min};
 
 use egui::{hex_color, Color32, Grid};
 use livesplit_core::{timing::formatter::{self, Accuracy, TimeFormatter}, Run, TimeSpan, TimerPhase};
+use serde::{Deserialize, Serialize};
 
 use super::{TimerComponent, UpdateData};
 
@@ -29,10 +30,14 @@ pub struct SubsplitMap {
     pub subsplits: Vec<SubsplitContainer>,
 }
 
+fn rgba_to_color(rgba: (u8, u8, u8, u8)) -> Color32 {
+    Color32::from_rgba_unmultiplied(rgba.0, rgba.1, rgba.2, rgba.3)
+}
+
 impl SplitRenderer {
     fn get_delta_color(&self, update_data: &UpdateData, delta: f64, component: &SplitComponent, best_time: Option<TimeSpan>, t_secs: f64) -> Color32 {
         if best_time.filter(|t| t.total_seconds() < t_secs).is_none() {
-            component.config.best_segment_color
+            rgba_to_color(component.config.best_segment_color)
         } else {
             if let Some(last_delta) = {
                 if self.comparison_index > 0 {
@@ -65,20 +70,20 @@ impl SplitRenderer {
                 let gaining = last_delta > delta;
                 if delta > 0.0 {
                     if gaining {
-                        component.config.behind_gaining_color
+                        rgba_to_color(component.config.behind_gaining_color)
                     } else {
-                        component.config.behind_losing_color
+                        rgba_to_color(component.config.behind_losing_color)
                     }
                 } else if gaining {
-                    component.config.ahead_gaining_color
+                    rgba_to_color(component.config.ahead_gaining_color)
                 } else {
-                    component.config.ahead_losing_color
+                    rgba_to_color(component.config.ahead_losing_color)
                 }
             } else {
                 if delta > 0.0 {
-                    component.config.behind_losing_color
+                    rgba_to_color(component.config.behind_losing_color)
                 } else {
-                    component.config.ahead_gaining_color
+                    rgba_to_color(component.config.ahead_gaining_color)
                 }
             }
         }
@@ -351,18 +356,19 @@ impl TimerComponent for SplitComponent {
 }
 
 impl SplitComponent {
-    pub fn new(config: SplitComponentConfig, run: &Run) -> Self {
+    pub fn new(run: &Run, config: &SplitComponentConfig) -> Self {
         Self {
             subsplit_map: SubsplitMap::from_run(run),
             last_real_segment: 0,
             segment_pos: 0,
             segment_formatter: formatter::Regular::with_accuracy(config.segment_time_accuracy),
             delta_formatter: formatter::Delta::custom(true, config.delta_accuracy),
-            config,
+            config: config.clone(),
         }
     }
 }
 
+#[derive(Serialize, Deserialize, Clone)]
 pub struct SplitComponentConfig {
     pub num_splits_shown: usize,
     pub always_show_last_split: bool,
@@ -370,11 +376,11 @@ pub struct SplitComponentConfig {
     pub shown_ahead_splits: usize,
     pub segment_time_accuracy: Accuracy,
     pub delta_accuracy: Accuracy,
-    pub best_segment_color: Color32,
-    pub behind_losing_color: Color32,
-    pub behind_gaining_color: Color32,
-    pub ahead_losing_color: Color32,
-    pub ahead_gaining_color: Color32,
+    pub best_segment_color: (u8, u8, u8, u8),
+    pub behind_losing_color: (u8, u8, u8, u8),
+    pub behind_gaining_color: (u8, u8, u8, u8),
+    pub ahead_losing_color: (u8, u8, u8, u8),
+    pub ahead_gaining_color: (u8, u8, u8, u8),
     pub striped: bool,
 }
 
@@ -387,11 +393,11 @@ impl Default for SplitComponentConfig {
             shown_ahead_splits: 1,
             segment_time_accuracy: Accuracy::Seconds,
             delta_accuracy: Accuracy::Hundredths,
-            best_segment_color: hex_color!("#ffb340"),
-            behind_losing_color: hex_color!("#690000"),
-            behind_gaining_color: hex_color!("#ff5454"),
-            ahead_losing_color: hex_color!("#80ff80"),
-            ahead_gaining_color: hex_color!("#00c900"),
+            best_segment_color: (0xff, 0xb3, 0x40, 0xff),
+            behind_losing_color: (0x69, 0x00, 0x00, 0xff),
+            behind_gaining_color: (0xff, 0x54, 0x54, 0xff),
+            ahead_losing_color: (0x80, 0xff, 0x80, 0xff),
+            ahead_gaining_color: (0x00, 0xc9, 0x00, 0xff),
             striped: true,
         }
     }

@@ -10,7 +10,9 @@ use read_process_memory::ProcessHandle;
 use serde::{Deserialize, Serialize};
 use settings_menu::SettingsMenu;
 use sysinfo::Pid;
-use timer_components::{split_component::{SplitComponent, SplitComponentConfig}, RunTimerComponent, RunTimerConfig, TimerComponent, TitleComponent, UpdateData};
+use timer_components::{split_component::{SplitComponent, SplitComponentConfig}, RunTimerComponent, TimerComponent, TitleComponent, UpdateData};
+
+use crate::timer_components::{TimerComponentConfig, TimerComponentType, TitleComponentConfig};
 
 mod hotkey_manager;
 mod autosplitter_manager;
@@ -24,12 +26,34 @@ struct GlobalConfig {
     pub autosave_splits: bool,
 }
 
+#[derive(Serialize, Deserialize)]
+struct TimerConfig {
+    pub components: Vec<TimerComponentType>,
+}
+
+struct ConfigReferences<'a> {
+    pub timer_config: &'a mut TimerConfig,
+    pub global_config: &'a mut GlobalConfig,
+}
+
 impl Default for GlobalConfig {
     fn default() -> Self {
         Self {
             active_profile: None,
             known_directories: Vec::new(),
             autosave_splits: true,
+        }
+    }
+}
+
+impl Default for TimerConfig {
+    fn default() -> Self {
+        Self {
+            components: vec![
+                TimerComponentType::TitleComponent(TitleComponentConfig::default()),
+                TimerComponentType::SplitComponent(SplitComponentConfig::default()),
+                TimerComponentType::TimerComponent(TimerComponentConfig::default()),
+            ]
         }
     }
 }
@@ -47,6 +71,7 @@ struct DeadSplit {
     notification_active: f32,
 
     global_config: GlobalConfig,
+    timer_config: TimerConfig,
 }
 
 impl Default for DeadSplit {
@@ -54,35 +79,60 @@ impl Default for DeadSplit {
         let timer = Timer::new(get_default_run())
             .expect("failed to create new splits")
             .into_shared();
-        let title_comp = TitleComponent::new(timer_read(&timer).run());
-        let split_comp = SplitComponent::new(SplitComponentConfig::default(), timer_read(&timer).run());
+        let timer_config = TimerConfig::default();
+        let mut components: Vec<Box<dyn TimerComponent>> = Vec::new();
+        for comp_type in &timer_config.components {
+            components.push(
+                match comp_type {
+                    TimerComponentType::TitleComponent(cfg) => {
+                        Box::new(TitleComponent::new(timer_read(&timer).run(), cfg))
+                    }
+                    TimerComponentType::SplitComponent(cfg) => {
+                        Box::new(SplitComponent::new(timer_read(&timer).run(), cfg))
+                    }
+                    TimerComponentType::TimerComponent(cfg) => {
+                        Box::new(RunTimerComponent::new(cfg))
+                    }
+                }
+            );
+        }
         Self {
             timer: timer,
             hotkey_mgr: HotkeyManager::new_wayland(Hook::new().expect("Failed to create hotkey hook")),
             autosplitter_manager: None,
             // TODO: Load these instead of hardcoding them
             // components: Vec::new(),
-            components: vec![
-                Box::new(title_comp),
-                Box::new(split_comp), 
-                Box::new(RunTimerComponent::new(RunTimerConfig::default()))
-            ],
+            components,
             settings_menu: SettingsMenu::new(),
             notification_text: String::new(),
             notification_active: 0.0,
             global_config: GlobalConfig::default(),
+            timer_config,
         } 
     }
 }
 
 impl DeadSplit {
     pub fn reload_components(&mut self) {
-        let title_comp = TitleComponent::new(timer_read(&self.timer).run());
-        let timer_comp = RunTimerComponent::new(RunTimerConfig::default());
-        let split_comp = SplitComponent::new(SplitComponentConfig::default(), timer_read(&self.timer).run());
-        self.components = vec![
-            Box::new(title_comp), Box::new(split_comp), Box::new(timer_comp),
-        ];
+        let mut new_comps: Vec<Box<dyn TimerComponent>> = Vec::new();
+
+        for comp_type in &self.timer_config.components {
+            new_comps.push(
+                match comp_type {
+                    TimerComponentType::TitleComponent(cfg) => {
+                        Box::new(TitleComponent::new(timer_read(&self.timer).run(), cfg))
+                    }
+                    TimerComponentType::SplitComponent(cfg) => {
+                        Box::new(SplitComponent::new(timer_read(&self.timer).run(), cfg))
+                    }
+                    TimerComponentType::TimerComponent(cfg) => {
+                        Box::new(RunTimerComponent::new(cfg))
+                    }
+                }
+            );
+        }
+
+        self.components = new_comps;
     }
 }
 
@@ -127,7 +177,6 @@ impl App for DeadSplit {
                 run: binding.run(),
                 hotkey_manager: &self.hotkey_mgr,
                 autosplitter_manager: &self.autosplitter_manager,
-                global_config: &self.global_config,
             };
 
             CentralPanel::default().show(ctx, |ui| {
@@ -140,6 +189,10 @@ impl App for DeadSplit {
                 }
             });
 
+            let mut configs = ConfigReferences {
+                global_config: &mut self.global_config,
+                timer_config: &mut self.timer_config,
+            };
             if self.settings_menu.shown {
                 ctx.show_viewport_immediate(
                     egui::ViewportId::from_hash_of("DeadSplit_settings"),
@@ -149,7 +202,7 @@ impl App for DeadSplit {
                     |ctx, class| {
                         assert!(class == egui::ViewportClass::Immediate, "multiple viewports not supported");
                         egui::CentralPanel::default().show(ctx, |ui| {
-                            self.settings_menu.show(ctx, ui, &update_data);
+                            self.settings_menu.show(ctx, ui, &update_data, &mut configs);
                         });
 
                         if ctx.input(|i| i.viewport().close_requested()) {
@@ -199,15 +252,29 @@ impl App for DeadSplit {
                         settings_menu::UpdateRequest::SaveSplits => {
                             save_splits_flag = true;
                         }
-                        settings_menu::UpdateRequest::SetAutosaveSplits(autosave) => {
-                            self.global_config.autosave_splits = autosave;
-                            save_global_cfg_flag = true;
+                        settings_menu::UpdateRequest::ReloadComponents => {
+                            reload_components_flag = true;
+                        }
+                        settings_menu::UpdateRequest::RemoveComponent(idx) => {
+                            let _ = self.timer_config.components.remove(idx);
+                        }
+                        settings_menu::UpdateRequest::MoveComponentDown(idx) => {
+                            if idx < self.timer_config.components.len() - 1 {
+                                self.timer_config.components.swap(idx, idx + 1);
+                            }
+                        }
+                        settings_menu::UpdateRequest::MoveComponentUp(idx) => {
+                            if idx > 0 && self.timer_config.components.len() > 1 {
+                                self.timer_config.components.swap(idx, idx - 1);
+                            }
                         }
                     }
                 }
 
                 // Reloads the timer once the settings menu closes.
-                reload_components_flag = !self.settings_menu.shown;
+                if !self.settings_menu.shown {
+                    reload_components_flag = true;
+                }
             }
         }
 

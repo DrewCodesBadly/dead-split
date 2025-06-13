@@ -25,6 +25,9 @@ pub enum UpdateRequest {
     RemoveComponent(usize),
     MoveComponentUp(usize),
     MoveComponentDown(usize),
+    RemoveSegment(usize),
+    MoveSegmentUp(usize),
+    MoveSegmentDown(usize),
 }
 
 #[derive(Default)]

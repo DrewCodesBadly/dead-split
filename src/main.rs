@@ -268,6 +268,25 @@ impl App for DeadSplit {
                                 self.timer_config.components.swap(idx, idx - 1);
                             }
                         }
+                        settings_menu::UpdateRequest::RemoveSegment(idx) => {
+                            if let Some(run) = &mut self.settings_menu.changed_run {
+                                let _ = run.segments_mut().remove(idx);
+                            }
+                        }
+                        settings_menu::UpdateRequest::MoveSegmentDown(idx) => {
+                            if let Some(run) = &mut self.settings_menu.changed_run {
+                                if idx < run.segments().len() - 1 {
+                                    run.segments_mut().swap(idx, idx + 1);
+                                }
+                            }
+                        }
+                        settings_menu::UpdateRequest::MoveSegmentUp(idx) => {
+                            if let Some(run) = &mut self.settings_menu.changed_run {
+                                if idx > 0 && run.segments().len() > 1 {
+                                    run.segments_mut().swap(idx, idx - 1);
+                                }
+                            }
+                        }
                     }
                 }
 

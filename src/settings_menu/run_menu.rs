@@ -38,9 +38,10 @@ impl SettingsMenu {
             };
             ui.label("Active Splits File: ".to_owned() + path_string);
             if ui.button("Open file...").clicked() {
+                // TODO: Handle other file types correctly, prompting for a new path
+                // if a non-lss file type is used.
                 self.split_file_path = FileDialog::new()
-                    // TODO: add filter for every supported file type
-                    // would have to check which types are supported.
+                    .add_filter("Split files", &["lss"])
                     .pick_file();
                 if let Some(p) = &self.split_file_path {
                     match try_load_run(p) {
@@ -138,6 +139,7 @@ impl SettingsMenu {
                     ..Default::default()
                 });
             }
+
             for i in 0..self.run_menu_data.split_data.len() {
                 let segment = run.segment_mut(i);
                 ui.separator();
@@ -187,7 +189,17 @@ impl SettingsMenu {
                                     .to_string();
                             }
                         });
-
+                    }
+                    
+                    // These need to be delayed, so we're using UpdateRequest
+                    if ui.button("Move Segment Up").clicked() {
+                        self.update_requests.push(UpdateRequest::MoveSegmentUp(i));
+                    }
+                    if ui.button("Move Segment Down").clicked() {
+                        self.update_requests.push(UpdateRequest::MoveSegmentDown(i));
+                    }
+                    if ui.button("Remove Segment").clicked() {
+                        self.update_requests.push(UpdateRequest::RemoveSegment(i));
                     }
                 }
                 ui.separator();

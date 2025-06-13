@@ -178,6 +178,19 @@ impl DeadSplit {
             .map_err(|e| ProfileSaveError::ZipWriterError(ZipError::Io(e)))?;
 
         // Update the autosplitter config if needed.
+        zip.start_file("autosplitters.toml", options)
+            .map_err(|e| ProfileSaveError::ZipWriterError(e))?;
+        zip.write(toml::to_string(&self.autosplitter_config)
+            .map_err(|e| ProfileSaveError::TomlSerializeError(e))?
+            .as_bytes())
+            .map_err(|e| ProfileSaveError::ZipWriterError(ZipError::Io(e)))?;
+
+        zip.finish().map_err(|e| ProfileSaveError::ZipWriterError(e))?;
+
+        Ok(())
+    }
+
+    fn update_autosplitter_config_settings(&mut self) {
         if let Some(mgr) = &self.autosplitter_manager {
             let settings_map = mgr.settings_map();
             let mut new_map: HashMap<String, SerializableSettingValue> = HashMap::new();
@@ -201,17 +214,8 @@ impl DeadSplit {
                     _ => {},
                 }
             }
+            self.autosplitter_config.settings = new_map;
         }
-        zip.start_file("autosplitters.toml", options)
-            .map_err(|e| ProfileSaveError::ZipWriterError(e))?;
-        zip.write(toml::to_string(&self.autosplitter_config)
-            .map_err(|e| ProfileSaveError::TomlSerializeError(e))?
-            .as_bytes())
-            .map_err(|e| ProfileSaveError::ZipWriterError(ZipError::Io(e)))?;
-
-        zip.finish().map_err(|e| ProfileSaveError::ZipWriterError(e))?;
-
-        Ok(())
     }
 }
 
@@ -241,6 +245,7 @@ impl App for DeadSplit {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let mut reload_components_flag = false;
         let mut save_global_cfg_flag = false;
+        let mut save_profile_flag = false;
         // Scope during which the timer binding lives
         // This can block attempts to change other stuff, like modifying the timer setup.
         {
@@ -402,8 +407,7 @@ impl App for DeadSplit {
                         let _ = binding.replace_run(run.clone(), true);
                         self.settings_menu.changed_run = None;
                     }
-                    // println!("{:?}", self.try_save_profile_zip(&binding));
-                    let _ = self.try_save_profile_zip(&binding);
+                    save_profile_flag = true;
                     reload_components_flag = true;
                 }
             }
@@ -460,6 +464,11 @@ impl App for DeadSplit {
                    let _ = file.inspect(|mut f| { let _ = f.write_all(data.as_bytes()); });
                 }
             }
+        }
+
+        if save_profile_flag {
+            self.update_autosplitter_config_settings();
+            let _ = self.try_save_profile_zip(&timer_read(&self.timer));
         }
 
         // Notifications

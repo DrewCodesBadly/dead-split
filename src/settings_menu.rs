@@ -1,4 +1,4 @@
-use std::{any::Any, path::PathBuf};
+use std::path::PathBuf;
 
 use egui::ScrollArea;
 use livesplit_core::{timing::formatter::{self, Accuracy}, Run};
@@ -9,6 +9,7 @@ mod profiles_menu;
 mod run_menu;
 mod hotkey_menu;
 mod autosplitter_menu;
+mod global_settings_menu;
 
 pub enum UpdateRequest {
     ReloadHotkeyManager(bool),
@@ -18,6 +19,8 @@ pub enum UpdateRequest {
     LoadProfile(PathBuf),
     RemoveKnownDirectory(usize),
     AddKnownDirectory(PathBuf),
+    SaveSplits,
+    SetAutosaveSplits(bool),
 }
 
 #[derive(Default)]
@@ -40,6 +43,7 @@ impl SettingsMenu {
             ui.collapsing("Edit Run", |ui| self.show_run_menu(ui, update_data));
             ui.collapsing("Hotkeys", |ui| self.show_hotkey_menu(ui, update_data));
             ui.collapsing("Autosplitters", |ui| self.show_autosplitters_menu(ui, update_data));
+            ui.collapsing("Global Settings", |ui| self.show_global_settings_menu(ui, update_data));
         });
     }
 

@@ -1,6 +1,6 @@
 use livesplit_core::{timing::{formatter::{Accuracy, SegmentTime, TimeFormatter}, Snapshot}, Run};
 
-use crate::{autosplitter_manager::AutosplitterManager, hotkey_manager::HotkeyManager, DirectoryConfig};
+use crate::{autosplitter_manager::AutosplitterManager, hotkey_manager::HotkeyManager, GlobalConfig};
 
 pub mod split_component;
 
@@ -9,7 +9,7 @@ pub struct UpdateData<'a> {
     pub run: &'a Run,
     pub hotkey_manager: &'a HotkeyManager,
     pub autosplitter_manager: &'a Option<AutosplitterManager>,
-    pub directory_config: &'a DirectoryConfig,
+    pub global_config: &'a GlobalConfig,
 }
 
 pub trait TimerComponent {

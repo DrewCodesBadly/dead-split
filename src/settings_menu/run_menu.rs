@@ -4,7 +4,7 @@ use egui::DragValue;
 use livesplit_core::{layout::parser, run::parser::{composite, parse}, timing::formatter::TimeFormatter, Run, Segment, TimeSpan};
 use rfd::FileDialog;
 
-use crate::timer_components::UpdateData;
+use crate::{settings_menu::UpdateRequest, timer_components::UpdateData};
 
 use super::SettingsMenu;
 
@@ -61,6 +61,15 @@ impl SettingsMenu {
             }
         });
 
+        if ui.button("Save splits to new file...").clicked() {
+            if let Some(p) = FileDialog::new()
+                .add_filter("Split files", &["lss"])
+                .save_file() {
+                self.split_file_path = Some(p);
+                self.update_requests.push(UpdateRequest::SaveSplits);
+            }
+        }
+        
         if let Some(run) = &mut self.changed_run {
             if !self.run_menu_data.generated {
                 self.run_menu_data.generated = true;
@@ -179,6 +188,9 @@ impl SettingsMenu {
                     }
                 }
                 ui.separator();
+            }
+            if ui.button("Save changes").clicked() {
+                self.update_requests.push(UpdateRequest::SaveSplits);
             }
         } else {
             if ui.button("Edit splits data...").clicked() {

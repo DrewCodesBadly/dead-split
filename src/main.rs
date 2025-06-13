@@ -1,11 +1,11 @@
-use std::{fs::{self, File}, io::Write, path::PathBuf, str::FromStr, sync::{RwLockReadGuard, RwLockWriteGuard}};
+use std::{fs::{self, File}, io::{BufWriter, Write}, path::PathBuf, str::FromStr, sync::{RwLockReadGuard, RwLockWriteGuard}};
 
 use autosplitter_manager::AutosplitterManager;
 use directories::ProjectDirs;
-use eframe::{run_native, App, CreationContext, NativeOptions};
+use eframe::{run_native, App, NativeOptions};
 use egui::{CentralPanel, Vec2, ViewportBuilder, Window, WindowLevel};
 use hotkey_manager::HotkeyManager;
-use livesplit_core::{hotkey::Hook, Run, Segment, SharedTimer, Timer, TimerPhase};
+use livesplit_core::{hotkey::Hook, run::saver::livesplit::{self, IoWrite}, Run, Segment, SharedTimer, Timer, TimerPhase};
 use read_process_memory::ProcessHandle;
 use serde::{Deserialize, Serialize};
 use settings_menu::SettingsMenu;
@@ -17,10 +17,21 @@ mod autosplitter_manager;
 mod timer_components;
 mod settings_menu;
 
-#[derive(Serialize, Deserialize, Default, Debug)]
-struct DirectoryConfig {
+#[derive(Serialize, Deserialize, Debug)]
+struct GlobalConfig {
     pub active_profile: Option<PathBuf>,
     pub known_directories: Vec<PathBuf>,
+    pub autosave_splits: bool,
+}
+
+impl Default for GlobalConfig {
+    fn default() -> Self {
+        Self {
+            active_profile: None,
+            known_directories: Vec::new(),
+            autosave_splits: true,
+        }
+    }
 }
 
 struct DeadSplit {
@@ -35,11 +46,11 @@ struct DeadSplit {
     notification_text: String,
     notification_active: f32,
 
-    directory_config: DirectoryConfig,
+    global_config: GlobalConfig,
 }
 
-impl DeadSplit {
-    pub fn new(_cc: &CreationContext<'_>) -> Self {
+impl Default for DeadSplit {
+    fn default() -> Self {
         let timer = Timer::new(get_default_run())
             .expect("failed to create new splits")
             .into_shared();
@@ -59,10 +70,12 @@ impl DeadSplit {
             settings_menu: SettingsMenu::new(),
             notification_text: String::new(),
             notification_active: 0.0,
-            directory_config: DirectoryConfig::default(),
-        }
+            global_config: GlobalConfig::default(),
+        } 
     }
+}
 
+impl DeadSplit {
     pub fn reload_components(&mut self) {
         let title_comp = TitleComponent::new(timer_read(&self.timer).run());
         let timer_comp = RunTimerComponent::new(RunTimerConfig::default());
@@ -70,10 +83,6 @@ impl DeadSplit {
         self.components = vec![
             Box::new(title_comp), Box::new(split_comp), Box::new(timer_comp),
         ];
-    }
-
-    pub fn set_directory_config(&mut self, cfg: DirectoryConfig) {
-        self.directory_config = cfg;
     }
 }
 
@@ -104,7 +113,8 @@ fn get_default_run() -> Run {
 impl App for DeadSplit {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let mut reload_components_flag = false;
-        let mut save_dirs_flag = false;
+        let mut save_global_cfg_flag = false;
+        let mut save_splits_flag = false;
         // Scope during which the timer binding lives
         // This can block attempts to change other stuff, like modifying the timer setup.
         {
@@ -117,7 +127,7 @@ impl App for DeadSplit {
                 run: binding.run(),
                 hotkey_manager: &self.hotkey_mgr,
                 autosplitter_manager: &self.autosplitter_manager,
-                directory_config: &self.directory_config,
+                global_config: &self.global_config,
             };
 
             CentralPanel::default().show(ctx, |ui| {
@@ -173,30 +183,31 @@ impl App for DeadSplit {
                                                 }
                                             }
                         settings_menu::UpdateRequest::LoadProfile(path_buf) => {
-                            self.directory_config.active_profile = Some(path_buf);
+                            self.global_config.active_profile = Some(path_buf);
                             // TODO
                         }
                         settings_menu::UpdateRequest::RemoveKnownDirectory(idx) => {
-                            self.directory_config.known_directories.remove(idx);
-                            save_dirs_flag = true;
+                            self.global_config.known_directories.remove(idx);
+                            save_global_cfg_flag = true;
                         }
                         settings_menu::UpdateRequest::AddKnownDirectory(path_buf) => {
-                            if !self.directory_config.known_directories.contains(&path_buf) {
-                                self.directory_config.known_directories.push(path_buf);
-                                save_dirs_flag = true;
+                            if !self.global_config.known_directories.contains(&path_buf) {
+                                self.global_config.known_directories.push(path_buf);
+                                save_global_cfg_flag = true;
                             }
+                        }
+                        settings_menu::UpdateRequest::SaveSplits => {
+                            save_splits_flag = true;
+                        }
+                        settings_menu::UpdateRequest::SetAutosaveSplits(autosave) => {
+                            self.global_config.autosave_splits = autosave;
+                            save_global_cfg_flag = true;
                         }
                     }
                 }
 
-                // Check if we need to reload settings
-                if !self.settings_menu.shown {
-                    if let Some(run) = &self.settings_menu.changed_run {
-                        let _ = binding.replace_run(run.clone(), true);
-                        self.settings_menu.changed_run = None;
-                    }
-                    reload_components_flag = true;
-                }
+                // Reloads the timer once the settings menu closes.
+                reload_components_flag = !self.settings_menu.shown;
             }
         }
 
@@ -219,6 +230,9 @@ impl App for DeadSplit {
                 hotkey_manager::HotkeyAction::Reset => {
                     binding.reset(true);
                     reload_components_flag = true;
+                    if self.global_config.autosave_splits {
+                        save_splits_flag = true;
+                    }
                 },
                 hotkey_manager::HotkeyAction::OpenSettings => self.settings_menu.shown = true,
                 hotkey_manager::HotkeyAction::ToggleTimingMethod => {
@@ -238,8 +252,8 @@ impl App for DeadSplit {
         }
 
         // kinda jank error ignoring.
-        if save_dirs_flag {
-            if let Ok(data) = toml::to_string(&self.directory_config) {
+        if save_global_cfg_flag {
+            if let Ok(data) = toml::to_string(&self.global_config) {
                 if let Some(path) = get_project_save_dir() {
                     if !path.exists() {
                         let _ = fs::create_dir_all(path.parent().unwrap());
@@ -250,7 +264,19 @@ impl App for DeadSplit {
             }
         }
 
-        // Save needed resources to file.
+        if save_splits_flag {
+            let mut binding = timer_write(&self.timer);
+            if let Some(run) = &self.settings_menu.changed_run {
+                let _ = binding.replace_run(run.clone(), true);
+                self.settings_menu.changed_run = None;
+            }
+
+            if let Some(p) = &self.settings_menu.split_file_path {
+                let _ = File::create(p).inspect(|f| {
+                    let _ = livesplit::save_run(binding.run(), IoWrite(BufWriter::new(f)));
+                });
+            }
+        }
 
         // Notifications
         if self.notification_active > 0.0 {
@@ -276,15 +302,15 @@ impl App for DeadSplit {
 
 fn main() {
     // Detect saved data.
-    let dirs_cfg: DirectoryConfig = {
+    let global_config: GlobalConfig = {
         if let Some(path) = get_project_save_dir() {
             if let Ok(s) = fs::read_to_string(path) {
-                toml::from_str(&s).unwrap_or(DirectoryConfig::default())
+                toml::from_str(&s).unwrap_or(GlobalConfig::default())
             } else {
-                DirectoryConfig::default()
+                GlobalConfig::default()
             }
         } else {
-            DirectoryConfig::default()
+            GlobalConfig::default()
         }
     };
     
@@ -302,8 +328,10 @@ fn main() {
         "DeadSplit", 
         window_options, 
         Box::new(|cc| {
-            let mut app = DeadSplit::new(cc);
-            app.set_directory_config(dirs_cfg);
+            let app = DeadSplit {
+                global_config,
+                ..Default::default()
+            };
             Ok(Box::new(app))
         }),
     ).expect("failed to open window");

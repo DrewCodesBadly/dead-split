@@ -7,7 +7,7 @@ use super::SettingsMenu;
 impl SettingsMenu {
     pub fn show_profiles_menu(&mut self, ui: &mut egui::Ui, update_data: &UpdateData) {
         ui.horizontal(|ui| {
-            let path_string = match &update_data.directory_config.active_profile {
+            let path_string = match &update_data.global_config.active_profile {
                 Some(p) => p.to_str().unwrap_or("None"),
                 None => "None",
             };
@@ -24,7 +24,7 @@ impl SettingsMenu {
         });
 
         ui.label("Directories to search for profiles:");
-        for (idx, dir) in update_data.directory_config.known_directories.iter().enumerate() {
+        for (idx, dir) in update_data.global_config.known_directories.iter().enumerate() {
             ui.horizontal(|ui| {
                 ui.label(dir.to_str().unwrap_or("<invalid path>"));
                 if ui.button("Remove").clicked() {

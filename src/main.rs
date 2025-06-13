@@ -1,10 +1,10 @@
 use core::fmt;
-use std::{fs::{self, File}, io::{BufWriter, Cursor, Read, Write}, path::PathBuf, str::FromStr, sync::{RwLockReadGuard, RwLockWriteGuard}};
+use std::{collections::HashMap, fs::{self, File}, io::{BufWriter, Cursor, Read, Write}, path::PathBuf, str::FromStr, sync::{RwLockReadGuard, RwLockWriteGuard}};
 
 use autosplitter_manager::AutosplitterManager;
 use directories::ProjectDirs;
 use eframe::{run_native, App, NativeOptions};
-use egui::{ahash::HashMap, CentralPanel, Vec2, ViewportBuilder, Window, WindowLevel};
+use egui::{CentralPanel, Vec2, ViewportBuilder, Window, WindowLevel};
 use hotkey_manager::HotkeyManager;
 use livesplit_core::{hotkey::Hook, run::saver::livesplit::{self, IoWrite}, Run, Segment, SharedTimer, Timer, TimerPhase};
 use read_process_memory::ProcessHandle;
@@ -14,7 +14,7 @@ use sysinfo::Pid;
 use timer_components::{split_component::{SplitComponent, SplitComponentConfig}, RunTimerComponent, TimerComponent, TitleComponent, UpdateData};
 use zip::{result::ZipError, write::SimpleFileOptions, ZipWriter};
 
-use crate::{autosplitter_manager::AutosplitterConfig, hotkey_manager::HotkeyAction, timer_components::{TimerComponentConfig, TimerComponentType, TitleComponentConfig}};
+use crate::{autosplitter_manager::{AutosplitterConfig, SerializableSettingValue}, hotkey_manager::HotkeyAction, timer_components::{TimerComponentConfig, TimerComponentType, TitleComponentConfig}};
 
 mod hotkey_manager;
 mod autosplitter_manager;
@@ -170,9 +170,41 @@ impl DeadSplit {
             .map_err(|e| ProfileSaveError::LivesplitSaveError(e))?;
 
         let hotkey_cfg = self.hotkey_mgr.get_hotkey_config();
-        zip.start_file("hotkey.toml", options)
+        zip.start_file("hotkeys.toml", options)
             .map_err(|e| ProfileSaveError::ZipWriterError(e))?;
         zip.write(toml::to_string(&hotkey_cfg)
+            .map_err(|e| ProfileSaveError::TomlSerializeError(e))?
+            .as_bytes())
+            .map_err(|e| ProfileSaveError::ZipWriterError(ZipError::Io(e)))?;
+
+        // Update the autosplitter config if needed.
+        if let Some(mgr) = &self.autosplitter_manager {
+            let settings_map = mgr.settings_map();
+            let mut new_map: HashMap<String, SerializableSettingValue> = HashMap::new();
+            for (k, v) in settings_map.iter() {
+                match v {
+                    // TODO: Support nested settings
+                    livesplit_auto_splitting::settings::Value::Map(_) => {},
+                    livesplit_auto_splitting::settings::Value::List(_) => {},
+                    livesplit_auto_splitting::settings::Value::Bool(b) => {
+                        new_map.insert(k.to_owned(), SerializableSettingValue::Bool(*b));
+                    }
+                    livesplit_auto_splitting::settings::Value::I64(i) => {
+                        new_map.insert(k.to_owned(), SerializableSettingValue::I64(*i));
+                    }
+                    livesplit_auto_splitting::settings::Value::F64(f) => {
+                        new_map.insert(k.to_owned(), SerializableSettingValue::F64(*f));
+                    }
+                    livesplit_auto_splitting::settings::Value::String(s) => {
+                        new_map.insert(k.to_owned(), SerializableSettingValue::StringValue((*s).to_string()));
+                    }
+                    _ => {},
+                }
+            }
+        }
+        zip.start_file("autosplitters.toml", options)
+            .map_err(|e| ProfileSaveError::ZipWriterError(e))?;
+        zip.write(toml::to_string(&self.autosplitter_config)
             .map_err(|e| ProfileSaveError::TomlSerializeError(e))?
             .as_bytes())
             .map_err(|e| ProfileSaveError::ZipWriterError(ZipError::Io(e)))?;

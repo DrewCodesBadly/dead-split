@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc, thread::{self}, time::Instant};
+use std::{collections::HashMap, path::PathBuf, sync::Arc, thread::{self}, time::Instant};
 
 use livesplit_auto_splitting::{settings, AutoSplitter, Runtime};
 use livesplit_core::SharedTimer;
@@ -6,9 +6,18 @@ use serde::{Deserialize, Serialize};
 
 use crate::{timer_read, timer_write};
 
+#[derive(Serialize, Deserialize)]
+pub enum SerializableSettingValue {
+    Bool(bool),
+    I64(i64),
+    F64(f64),
+    StringValue(String),
+}
+
 #[derive(Serialize, Deserialize, Default)]
 pub struct AutosplitterConfig {
     pub enabled: bool,
+    pub settings: HashMap<String, SerializableSettingValue>,
 }
 
 // deplorable.

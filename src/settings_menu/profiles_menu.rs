@@ -27,6 +27,18 @@ impl SettingsMenu {
             }
         });
 
+        ui.horizontal(|ui| {
+            if ui.button("Load profile from file...").clicked() {
+                if let Some(path) = FileDialog::new()
+                    .add_filter("ZIP Profiles", &["zip"])
+                    .pick_file() {
+                    configs.global_config.active_profile = Some(path);
+                    self.update_requests.push(UpdateRequest::RestartTimer);
+                }
+            }
+            ui.weak("The timer will restart.");
+        });
+
         ui.label("Directories to search for profiles:");
         for (idx, dir) in configs.global_config.known_directories.iter().enumerate() {
             ui.horizontal(|ui| {

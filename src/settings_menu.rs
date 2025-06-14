@@ -29,6 +29,7 @@ pub enum UpdateRequest {
     CheckGameForAutosplitter(String),
     TryImportAutosplitter(PathBuf),
     ToggleAutosplitterEnabled(bool),
+    RestartTimer,
 }
 
 #[derive(Default)]

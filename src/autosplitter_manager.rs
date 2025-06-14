@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{timer_read, timer_write};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub enum SerializableSettingValue {
     Bool(bool),
     I64(i64),
@@ -18,6 +18,31 @@ pub enum SerializableSettingValue {
 pub struct AutosplitterConfig {
     pub enabled: bool,
     pub settings: HashMap<String, SerializableSettingValue>,
+}
+
+impl AutosplitterConfig {
+    pub fn get_settings_map(&self) -> settings::Map {
+        let mut map = settings::Map::new();
+        for (k, v) in &self.settings {
+            let arc: Arc<str> = Arc::from(k.as_str());
+            match v {
+                SerializableSettingValue::Bool(b) => {
+                    map.insert(arc, settings::Value::Bool(*b));
+                }
+                SerializableSettingValue::I64(i) => {
+                    map.insert(arc, settings::Value::I64(*i))
+                }
+                SerializableSettingValue::F64(f) => {
+                    map.insert(arc, settings::Value::F64(*f));
+                }
+                SerializableSettingValue::StringValue(s) => {
+                    map.insert(arc, settings::Value::String(Arc::from(s.as_str())));
+                }
+            }
+        }
+
+        map
+    }
 }
 
 // deplorable.

@@ -1,25 +1,27 @@
 use core::fmt;
-use std::{collections::HashMap, fs::{self, File}, io::{BufWriter, Cursor, Read, Write}, path::PathBuf, str::FromStr, sync::{RwLockReadGuard, RwLockWriteGuard}};
+use std::{collections::HashMap, fs::{self, File}, io::{Read, Write}, path::PathBuf, sync::{atomic::AtomicBool, RwLockReadGuard, RwLockWriteGuard}};
 
 use autosplitter_manager::AutosplitterManager;
 use directories::ProjectDirs;
 use eframe::{run_native, App, NativeOptions};
 use egui::{CentralPanel, Vec2, ViewportBuilder, Window, WindowLevel};
 use hotkey_manager::HotkeyManager;
-use livesplit_core::{hotkey::Hook, run::saver::livesplit::{self, IoWrite}, Run, Segment, SharedTimer, Timer, TimerPhase};
+use livesplit_core::{hotkey::Hook, run::{parser::composite, saver::livesplit::{self, IoWrite}}, Run, Segment, SharedTimer, Timer, TimerPhase};
 use read_process_memory::ProcessHandle;
 use serde::{Deserialize, Serialize};
 use settings_menu::SettingsMenu;
 use sysinfo::Pid;
 use timer_components::{split_component::{SplitComponent, SplitComponentConfig}, RunTimerComponent, TimerComponent, TitleComponent, UpdateData};
-use zip::{result::ZipError, write::SimpleFileOptions, ZipWriter};
+use zip::{result::ZipError, write::SimpleFileOptions, ZipArchive, ZipWriter};
 
-use crate::{autosplitter_manager::{AutosplitterConfig, SerializableSettingValue}, hotkey_manager::HotkeyAction, timer_components::{TimerComponentConfig, TimerComponentType, TitleComponentConfig}};
+use crate::{autosplitter_manager::{AutosplitterConfig, SerializableSettingValue}, hotkey_manager::HotkeyConfig, timer_components::{TimerComponentConfig, TimerComponentType, TitleComponentConfig}};
 
 mod hotkey_manager;
 mod autosplitter_manager;
 mod timer_components;
 mod settings_menu;
+
+static PENDING_RESTART: AtomicBool = AtomicBool::new(true);
 
 #[derive(Debug)]
 pub enum ProfileSaveError {
@@ -30,7 +32,7 @@ pub enum ProfileSaveError {
     LivesplitSaveError(fmt::Error),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct GlobalConfig {
     pub active_profile: Option<PathBuf>,
     pub known_directories: Vec<PathBuf>,
@@ -217,6 +219,24 @@ impl DeadSplit {
             self.autosplitter_config.settings = new_map;
         }
     }
+
+    fn set_run(&self, new_run: Run) {
+        let _ = timer_write(&self.timer).replace_run(new_run, true);
+    }
+
+    fn load_autosplitter_manager(&mut self) {
+        if self.autosplitter_config.enabled {
+            if let Some(dirs) = ProjectDirs::from("com", "DrewCodesBadly", "DeadSplit") {
+                let mut path = dirs.preference_dir().to_path_buf();
+                path.push(to_snake_case(timer_read(&self.timer).run().game_name()) + ".wasm");
+                self.autosplitter_manager = AutosplitterManager::new(self.timer.clone(), &path).ok();
+                if let Some(mgr) = &self.autosplitter_manager {
+                    mgr.set_settings_map(self.autosplitter_config.get_settings_map());
+                    self.settings_menu.autosplitter_path = Some(path);
+                }
+            }
+        } 
+    }
 }
 
 // Wrapper for sysinfo::Process and read_process_memory::ProcessHandle since we really need both or none
@@ -398,6 +418,12 @@ impl App for DeadSplit {
                                 self.autosplitter_manager = None;
                             }
                         }
+                        settings_menu::UpdateRequest::RestartTimer => {
+                            // Closes and restarts the app on a new thread.
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                            PENDING_RESTART.store(true, std::sync::atomic::Ordering::Relaxed);
+                            save_global_cfg_flag = true;
+                        }
                     }
                 }
 
@@ -493,41 +519,68 @@ impl App for DeadSplit {
     }
 }
 
+struct ProfileLoadData {
+    pub autosplitter_config: AutosplitterConfig,
+    pub timer_config: TimerConfig,
+    pub hotkey_config: HotkeyConfig,
+    pub run: Run,
+}
+
 fn main() {
-    // Detect saved data.
-    let global_config: GlobalConfig = {
-        if let Some(path) = get_project_save_dir() {
-            if let Ok(s) = fs::read_to_string(path) {
-                toml::from_str(&s).unwrap_or(GlobalConfig::default())
+    while PENDING_RESTART.load(std::sync::atomic::Ordering::Relaxed) {
+        PENDING_RESTART.store(false, std::sync::atomic::Ordering::Relaxed);
+        // Detect saved data.
+        let global_config: GlobalConfig = {
+            if let Some(path) = get_project_save_dir() {
+                if let Ok(s) = fs::read_to_string(path) {
+                    toml::from_str(&s).unwrap_or(GlobalConfig::default())
+                } else {
+                    GlobalConfig::default()
+                }
             } else {
                 GlobalConfig::default()
             }
-        } else {
-            GlobalConfig::default()
-        }
-    };
-    
-    // TODO: Different types of windows
-    let window_options = NativeOptions {
-        viewport: ViewportBuilder {
-            transparent: Some(true),
-            window_level: Some(WindowLevel::AlwaysOnTop),
-            ..Default::default()
-        },
-        ..Default::default()
-    };
+        };
 
-    run_native(
-        "DeadSplit", 
-        window_options, 
-        Box::new(|cc| {
-            let app = DeadSplit {
-                global_config,
+        // Try to load a profile
+        let configs = {
+            load_profile_data(global_config.active_profile.as_ref()).unwrap_or(ProfileLoadData {
+                autosplitter_config: AutosplitterConfig::default(),
+                hotkey_config: HotkeyConfig::default(),
+                timer_config: TimerConfig::default(),
+                run: get_default_run(),
+            })
+        };
+        
+        // TODO: Different types of windows
+        let window_options = NativeOptions {
+            viewport: ViewportBuilder {
+                transparent: Some(true),
+                window_level: Some(WindowLevel::AlwaysOnTop),
                 ..Default::default()
-            };
-            Ok(Box::new(app))
-        }),
-    ).expect("failed to open window");
+            },
+            ..Default::default()
+        };
+
+        let mut app = DeadSplit {
+            timer_config: configs.timer_config,
+            autosplitter_config: configs.autosplitter_config,
+            hotkey_mgr: HotkeyManager::from_config(configs.hotkey_config),
+            global_config,
+            ..Default::default()
+        };
+        app.set_run(configs.run);
+        app.load_autosplitter_manager();
+        app.reload_components();
+
+        run_native(
+            "DeadSplit", 
+            window_options, 
+            Box::new(|cc| {
+                Ok(Box::new(app))
+            }),
+        ).expect("failed to open window");
+    }
 }
 
 fn get_project_save_dir() -> Option<PathBuf> {
@@ -544,3 +597,39 @@ fn get_project_save_dir() -> Option<PathBuf> {
 fn to_snake_case(s: &str) -> String {
     s.to_lowercase().replace(" ", "_")
 }
+
+fn load_profile_data(path: Option<&PathBuf>) -> Option<ProfileLoadData> {
+    let file = File::open(path?).ok()?;
+    let mut zip = ZipArchive::new(file).ok()?;
+    let mut string_buf = String::new();
+    let _ = zip.by_name("autosplitters.toml").ok()?
+        .read_to_string(&mut string_buf);
+    let autosplitter_config: AutosplitterConfig = toml::from_str(&string_buf).ok()?;
+    string_buf.clear();
+    let _ = zip.by_name("hotkeys.toml").ok()?
+        .read_to_string(&mut string_buf);
+    let hotkey_config: HotkeyConfig = toml::from_str(&string_buf).ok()?;
+    string_buf.clear();
+    let _ = zip.by_name("timer_config.toml").ok()?
+        .read_to_string(&mut string_buf);
+    let timer_config: TimerConfig = toml::from_str(&string_buf).ok()?;
+    string_buf.clear();
+    let _ = zip.by_name("splits.lss").ok()?
+        .read_to_string(&mut string_buf);
+    let run = try_load_run_from_string(&string_buf).ok()?;
+
+    Some(ProfileLoadData {
+        autosplitter_config,
+        hotkey_config,
+        timer_config,
+        run,
+    })
+}
+
+fn try_load_run_from_string(s: &str) -> Result<Run, std::io::Error> {
+    match composite::parse(s.as_bytes(), None) {
+        Ok(parsed) => return Ok(parsed.run),
+        Err(_) => return Err(std::io::Error::new(std::io::ErrorKind::Other, "invalid splits file")),
+    }
+}
+

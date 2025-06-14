@@ -4,7 +4,7 @@ use livesplit_core::hotkey::{Hook, Hotkey};
 use serde::{Deserialize, Serialize};
 use strum::EnumIter;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
 pub struct HotkeyConfig {
     pub x11_hotkeys: bool,
     pub string_map: HashMap<HotkeyAction, String>,
@@ -183,6 +183,30 @@ impl HotkeyManager {
             x11_hotkeys: self.is_x11(),
             key_map: self.key_map.clone(),
             string_map: self.string_map.clone(),
+        }
+    }
+
+    pub fn from_config(config: HotkeyConfig) -> Self {
+        if config.x11_hotkeys {
+            let manager = GlobalHotKeyManager::new()
+                .expect("Failed to create hotkey manager.");
+            Self {
+                wayland_hook: None,
+                x11_manager: Some(manager),
+                string_map: config.string_map,
+                key_map: config.key_map,
+                last_pressed_index: Arc::new(None.into()),
+            } 
+        } else {
+            let hook = Hook::new()
+                .expect("Failed to create global hotkey hook.");
+            Self {
+                wayland_hook: Some(hook),
+                x11_manager: None,
+                string_map: config.string_map,
+                key_map: config.key_map,
+                last_pressed_index: Arc::new(None.into()),
+            }
         }
     }
 }
